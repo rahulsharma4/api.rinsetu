@@ -7,9 +7,17 @@ import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
 import { rateLimit } from 'express-rate-limit';
 
-// Force DNS to resolve IPv4 first (fixes MongoDB querySrv ECONNREFUSED)
-dns.setServers(['8.8.8.8', '8.8.4.4']);
-dns.setDefaultResultOrder('ipv4first');
+// Force DNS to resolve IPv4 first (fixes MongoDB querySrv ECONNREFUSED in local ISPs)
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    dns.setServers(['8.8.8.8', '8.8.4.4']);
+    if (dns.setDefaultResultOrder) {
+      dns.setDefaultResultOrder('ipv4first');
+    }
+  } catch (err) {
+    console.warn('⚠️ DNS custom configuration failed (ignoring):', err.message);
+  }
+}
 
 dotenv.config();
 

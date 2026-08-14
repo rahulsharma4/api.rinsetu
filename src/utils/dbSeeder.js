@@ -12,10 +12,10 @@ import AutomationRule from '../models/AutomationRule.js';
 
 export async function seedAdminUser() {
   try {
-    const superadminExists = await User.findOne({ role: 'super-admin' });
+    const rahulExists = await User.findOne({ username: 'rahul' });
     
-    if (!superadminExists) {
-      console.log('🧹 Clearing legacy database collections for fresh RinSetu launch...');
+    if (!rahulExists) {
+      console.log('🧹 Clearing legacy database collections for fresh RinSetu launch with Rahul...');
       
       await User.deleteMany({});
       await Customer.deleteMany({});
@@ -28,17 +28,17 @@ export async function seedAdminUser() {
       await AutomationLog.deleteMany({});
       await AutomationRule.deleteMany({});
       
-      console.log('🌱 Database cleared! Seeding RinSetu Super Admin and default Tenant Admin...');
+      console.log('🌱 Database cleared! Seeding RinSetu Super Admin (Rahul) and default Tenant Admin...');
       
       const salt = await bcrypt.genSalt(10);
-      const superPassword = await bcrypt.hash('RinSetu@Super2026', salt);
+      const superPassword = await bcrypt.hash('Rahul@0406', salt);
       const adminPassword = await bcrypt.hash('RinSetu@Admin2026', salt);
       
       // 1. Create Super Admin
       const superAdmin = new User({
-        username: 'superadmin',
+        username: 'rahul',
         password: superPassword,
-        name: 'RinSetu Owner',
+        name: 'Rahul Bhardwaj',
         role: 'super-admin'
       });
       await superAdmin.save();

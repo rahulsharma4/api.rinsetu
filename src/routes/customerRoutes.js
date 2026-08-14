@@ -173,7 +173,7 @@ router.post('/:id/documents', upload.single('file'), async (req, res) => {
     const documentData = {
       label: label || req.file.originalname,
       filename: req.file.filename,
-      fileUrl: `http://localhost:5001/uploads/${req.file.filename}`
+      fileUrl: `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`
     };
 
     customer.documents.push(documentData);
