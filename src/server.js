@@ -1,0 +1,119 @@
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import dns from 'dns';
+import helmet from 'helmet';
+import mongoSanitize from 'express-mongo-sanitize';
+import { rateLimit } from 'express-rate-limit';
+
+// Force DNS to resolve IPv4 first (fixes MongoDB querySrv ECONNREFUSED)
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+dns.setDefaultResultOrder('ipv4first');
+
+dotenv.config();
+
+// Import routes
+import authRoutes from './routes/authRoutes.js';
+import customerRoutes from './routes/customerRoutes.js';
+import loanRoutes from './routes/loanRoutes.js';
+import transactionRoutes from './routes/transactionRoutes.js';
+import aiRoutes from './routes/aiRoutes.js';
+import collectionRoutes from './routes/collectionRoutes.js';
+import reportRoutes from './routes/reportRoutes.js';
+import settingsRoutes from './routes/settingsRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import superAdminRoutes from './routes/superAdminRoutes.js';
+
+import { startCronEngine } from './utils/cronJob.js';
+import { seedAdminUser } from './utils/dbSeeder.js';
+
+// Import auth middleware
+import { authMiddleware } from './middleware/authMiddleware.js';
+
+const app = express();
+const PORT = process.env.PORT || 5001;
+
+// ============================================
+// SECURITY REINFORCEMENTS MIDDLEWARE
+// ============================================
+app.use(helmet({
+  crossOriginResourcePolicy: false // Allows loading uploaded static doc files in frontend
+}));
+app.use(mongoSanitize()); // Prevent NoSQL injection attacks
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Max 100 requests per IP per 15 mins
+  message: { message: 'Too many authentication attempts from this IP, please try again after 15 minutes.' }
+});
+
+// Middlewares
+app.use(cors());
+app.use(express.json());
+
+// Serves customer KYC document files
+app.use('/uploads', express.static('./uploads'));
+
+// ============================================
+// PUBLIC ROUTES
+// ============================================
+app.use('/api/auth', authLimiter, authRoutes);
+
+// Health check
+app.get('/', (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  res.json({ status: 'online', database: dbStatus, timestamp: new Date() });
+});
+
+// ============================================
+// PROTECTED ROUTES (JWT + MongoDB zaroori)
+// ============================================
+app.use('/api/customers', authMiddleware, customerRoutes);
+app.use('/api/loans', authMiddleware, loanRoutes);
+app.use('/api/transactions', authMiddleware, transactionRoutes);
+app.use('/api/ai', authMiddleware, aiRoutes);
+app.use('/api/collection', authMiddleware, collectionRoutes);
+app.use('/api/reports', authMiddleware, reportRoutes);
+app.use('/api/settings', authMiddleware, settingsRoutes);
+app.use('/api/notifications', authMiddleware, notificationRoutes);
+app.use('/api/superadmin', authMiddleware, superAdminRoutes);
+
+// ============================================
+// EXPRESS SERVER PEHLE START KARO
+// ============================================
+app.listen(PORT, () => {
+  console.log(`✅ Server running on http://localhost:${PORT}`);
+  console.log(`🔑 Auth endpoint ready: POST /api/auth/login`);
+  console.log(`⏳ Connecting to MongoDB Atlas...`);
+
+  connectDatabase();
+});
+
+// ============================================
+// DATABASE CONNECTION (Retry with backoff)
+// ============================================
+const MONGODB_URI = process.env.MONGODB_URI;
+
+async function connectDatabase(attempt = 1) {
+  if (!MONGODB_URI) {
+    console.error('❌ MONGODB_URI is not defined in .env file.');
+    return;
+  }
+
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log('✅ Successfully connected to MongoDB Atlas!');
+    
+    // Seed default admin user if not present
+    await seedAdminUser();
+    
+    // Start node-cron engine
+    startCronEngine();
+  } catch (err) {
+    const waitSeconds = Math.min(attempt * 5, 30);
+    console.error(`❌ MongoDB connection failed (attempt ${attempt}): ${err.message}`);
+    console.log(`🔄 Retrying in ${waitSeconds} seconds...`);
+    setTimeout(() => connectDatabase(attempt + 1), waitSeconds * 1000);
+  }
+}
