@@ -30,6 +30,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: 'RinSetu',
     },
+    status: {
+      type: String,
+      enum: ['Active', 'Suspended'],
+      default: 'Active',
+    },
   },
   {
     timestamps: true,

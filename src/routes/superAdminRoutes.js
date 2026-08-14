@@ -40,6 +40,7 @@ router.get('/tenants', async (req, res) => {
           name: t.name,
           businessName: t.businessName,
           createdAt: t.createdAt,
+          status: t.status || 'Active',
           customerCount,
           loanCount,
           activeLoans
@@ -163,6 +164,32 @@ router.get('/stats', async (req, res) => {
       activeLoans,
       totalCapitalDisbursed,
       totalRepaymentsReceived
+    });
+});
+
+// PUT /api/superadmin/tenants/:id/status - Toggle tenant status (Active <-> Suspended)
+router.put('/tenants/:id/status', async (req, res) => {
+  const { status } = req.body;
+  if (!['Active', 'Suspended'].includes(status)) {
+    return res.status(400).json({ message: 'Galat status values. Status must be Active or Suspended.' });
+  }
+
+  try {
+    const tenant = await User.findOne({ _id: req.params.id, role: 'admin' });
+    if (!tenant) {
+      return res.status(404).json({ message: 'Tenant not found.' });
+    }
+
+    tenant.status = status;
+    await tenant.save();
+
+    res.json({
+      message: `Tenant "${tenant.businessName}" status updated to ${status} successfully.`,
+      tenant: {
+        _id: tenant._id,
+        businessName: tenant.businessName,
+        status: tenant.status
+      }
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
