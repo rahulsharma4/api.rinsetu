@@ -165,6 +165,9 @@ router.get('/stats', async (req, res) => {
       totalCapitalDisbursed,
       totalRepaymentsReceived
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 // PUT /api/superadmin/tenants/:id/status - Toggle tenant status (Active <-> Suspended)
