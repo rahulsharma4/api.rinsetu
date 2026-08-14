@@ -1,0 +1,18 @@
+# dependency directories
+node_modules/
+
+# local env file
+.env
+
+# app uploads and backups
+uploads/*
+!uploads/.gitkeep
+backups/
+
+# logs
+logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
