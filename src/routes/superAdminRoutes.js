@@ -11,6 +11,7 @@ import AuditLog from '../models/AuditLog.js';
 import AutomationRule from '../models/AutomationRule.js';
 import AutomationLog from '../models/AutomationLog.js';
 import Installment from '../models/Installment.js';
+import { signToken } from '../utils/jwtHelper.js';
 
 const router = express.Router();
 
@@ -162,6 +163,44 @@ router.get('/stats', async (req, res) => {
       activeLoans,
       totalCapitalDisbursed,
       totalRepaymentsReceived
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /api/superadmin/impersonate/:tenantId - Impersonate a tenant admin
+router.post('/impersonate/:tenantId', async (req, res) => {
+  try {
+    const tenant = await User.findOne({ _id: req.params.tenantId, role: 'admin' });
+    if (!tenant) {
+      return res.status(404).json({ message: 'Tenant not found.' });
+    }
+
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    
+    // Sign a token for the tenant, but attach impersonating flags
+    const token = signToken({
+      username: tenant.username,
+      role: tenant.role,
+      id: tenant._id,
+      tenantId: tenant.tenantId,
+      isImpersonating: true,
+      superAdminUsername: req.admin.username
+    }, secret, 86400);
+
+    res.json({
+      message: `Impersonation token generated for ${tenant.businessName}`,
+      token,
+      admin: {
+        username: tenant.username,
+        role: tenant.role,
+        name: tenant.name,
+        tenantId: tenant.tenantId,
+        businessName: tenant.businessName,
+        isImpersonating: true,
+        superAdminUsername: req.admin.username
+      }
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

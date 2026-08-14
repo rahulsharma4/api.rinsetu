@@ -34,7 +34,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import superAdminRoutes from './routes/superAdminRoutes.js';
 
 import { startCronEngine } from './utils/cronJob.js';
-import { seedAdminUser } from './utils/dbSeeder.js';
+import { seedAdminUser, cleanupDefaultAdmin } from './utils/dbSeeder.js';
 
 // Import auth middleware
 import { authMiddleware } from './middleware/authMiddleware.js';
@@ -115,6 +115,7 @@ async function connectDatabase(attempt = 1) {
     
     // Seed default admin user if not present
     await seedAdminUser();
+    await cleanupDefaultAdmin();
     
     // Start node-cron engine
     startCronEngine();

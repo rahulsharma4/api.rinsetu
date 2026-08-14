@@ -67,7 +67,18 @@ router.post('/verify', async (req, res) => {
       return res.status(401).json({ valid: false, message: 'User database mein nahi mila.' });
     }
 
-    res.json({ valid: true, admin: { username: user.username, role: user.role, name: user.name, tenantId: user.tenantId, businessName: user.businessName } });
+    res.json({
+      valid: true,
+      admin: {
+        username: user.username,
+        role: user.role,
+        name: user.name,
+        tenantId: user.tenantId,
+        businessName: user.businessName,
+        isImpersonating: decoded.isImpersonating || false,
+        superAdminUsername: decoded.superAdminUsername || null
+      }
+    });
   } catch (err) {
     res.status(401).json({ valid: false, message: 'Token expire ho gaya ya galat hai.' });
   }
