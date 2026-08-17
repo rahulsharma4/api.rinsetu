@@ -35,6 +35,22 @@ const userSchema = new mongoose.Schema(
       enum: ['Active', 'Suspended'],
       default: 'Active',
     },
+    // ── Razorpay Payment Gateway (per-tenant, optional) ──────────────────
+    gatewayKeyId: {
+      type: String,
+      default: '',
+      select: false, // Not included by default for security
+    },
+    gatewayKeySecret: {
+      type: String,
+      default: '',
+      select: false, // Never expose in API responses
+    },
+    gatewayWebhookSecret: {
+      type: String,
+      default: '',
+      select: false,
+    },
   },
   {
     timestamps: true,

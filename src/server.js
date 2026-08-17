@@ -32,6 +32,7 @@ import reportRoutes from './routes/reportRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import superAdminRoutes from './routes/superAdminRoutes.js';
+import webhookRoutes from './routes/webhookRoutes.js';
 
 import { startCronEngine } from './utils/cronJob.js';
 import { seedAdminUser, cleanupDefaultAdmin } from './utils/dbSeeder.js';
@@ -67,6 +68,10 @@ app.use('/uploads', express.static('./uploads'));
 // PUBLIC ROUTES
 // ============================================
 app.use('/api/auth', authLimiter, authRoutes);
+
+// ── PUBLIC WEBHOOK (no JWT – Razorpay calls this directly) ───────────────────
+// Must use express.raw() so we can verify Razorpay HMAC signature
+app.use('/api/webhooks/razorpay', webhookRoutes);
 
 // Health check
 app.get('/', (req, res) => {

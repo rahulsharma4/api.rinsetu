@@ -168,4 +168,56 @@ router.put('/profile', async (req, res) => {
   }
 });
 
+
+// GET /api/auth/gateway-settings  (read current gateway config for settings panel)
+router.get('/gateway-settings', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const user = await User.findById(decoded.id).select('+gatewayKeyId +gatewayWebhookSecret');
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    res.json({
+      gatewayKeyId: user.gatewayKeyId || '',
+      gatewayWebhookSecret: user.gatewayWebhookSecret || '',
+      isConfigured: !!(user.gatewayKeyId && user.gatewayKeyId.length > 0),
+      webhookUrl: `${req.protocol}://${req.get('host')}/api/webhooks/razorpay/${decoded.id}`,
+    });
+  } catch (err) {
+    res.status(401).json({ message: 'Token expired or invalid.' });
+  }
+});
+
+// PUT /api/auth/gateway-settings  (save/update Razorpay credentials)
+router.put('/gateway-settings', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const { gatewayKeyId, gatewayKeySecret, gatewayWebhookSecret } = req.body;
+
+    const user = await User.findById(decoded.id).select('+gatewayKeyId +gatewayKeySecret +gatewayWebhookSecret');
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    if (gatewayKeyId !== undefined) user.gatewayKeyId = gatewayKeyId.trim();
+    if (gatewayKeySecret !== undefined && gatewayKeySecret.trim()) {
+      user.gatewayKeySecret = gatewayKeySecret.trim();
+    }
+    if (gatewayWebhookSecret !== undefined) user.gatewayWebhookSecret = gatewayWebhookSecret.trim();
+
+    await user.save();
+    res.json({ message: 'Payment gateway settings saved successfully!' });
+  } catch (err) {
+    console.error('❌ Gateway settings update error:', err);
+    res.status(500).json({ message: 'Failed to save gateway settings.' });
+  }
+});
+
 export default router;

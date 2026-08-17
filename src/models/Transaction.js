@@ -24,7 +24,7 @@ const transactionSchema = new mongoose.Schema(
     },
     paymentMode: {
       type: String,
-      enum: ['cash', 'online', 'bank_transfer', 'cheque'],
+      enum: ['cash', 'online', 'bank_transfer', 'cheque', 'upi'],
       default: 'cash',
     },
     paymentDate: {
@@ -55,6 +55,25 @@ const transactionSchema = new mongoose.Schema(
     notes: {
       type: String,
       trim: true,
+    },
+    isReversed: {
+      type: Boolean,
+      default: false,
+    },
+    // ── Razorpay Gateway fields (populated only for UPI auto-payments) ────
+    razorpayOrderId: {
+      type: String,
+      default: '',
+    },
+    razorpayPaymentId: {
+      type: String,
+      default: '',
+      index: true, // For fast duplicate-check lookups
+    },
+    gatewayStatus: {
+      type: String,
+      enum: ['pending', 'captured', 'failed', ''],
+      default: '',
     },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,

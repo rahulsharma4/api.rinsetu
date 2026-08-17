@@ -3,8 +3,81 @@ import Transaction from '../models/Transaction.js';
 import CashBook from '../models/CashBook.js';
 import { rebuildInstallmentPayments } from '../utils/waterfallEngine.js';
 import { logAuditAction } from '../utils/auditHelper.js';
+import { generateUPIPaymentOrder } from '../utils/paymentGatewayHelper.js';
+import Razorpay from 'razorpay';
+import User from '../models/User.js';
 
 const router = express.Router();
+
+// ─── POST /api/transactions/generate-qr ─────────────────────────────────────
+// Creates a Razorpay UPI payment order for a specific loan repayment.
+// Returns orderId + UPI intent URL which the frontend renders as a QR code.
+router.post('/generate-qr', async (req, res) => {
+  const { loanId, customerId, borrowerName, amount, paymentType, notes } = req.body;
+
+  if (!loanId || !customerId || !amount) {
+    return res.status(400).json({ message: 'loanId, customerId, and amount are required.' });
+  }
+
+  try {
+    const result = await generateUPIPaymentOrder(req.admin.tenantId, {
+      loanId,
+      customerId,
+      borrowerName,
+      amount,
+      paymentType: paymentType || 'both',
+      notes,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err.message === 'GATEWAY_NOT_CONFIGURED') {
+      return res.status(422).json({
+        message: 'Payment gateway not configured. Please add your Razorpay API keys in Settings → Payment Settings.',
+        code: 'GATEWAY_NOT_CONFIGURED',
+      });
+    }
+    res.status(500).json({ message: err.message || 'Failed to generate payment QR.' });
+  }
+});
+
+// ─── GET /api/transactions/check-status/:orderId ─────────────────────────────
+// Frontend polls this every few seconds to check if the UPI payment was completed.
+// Once the webhook auto-records it, this will return status: 'captured'.
+router.get('/check-status/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  try {
+    // Check if webhook has already recorded this payment
+    const recorded = await Transaction.findOne({
+      razorpayOrderId: orderId,
+      tenantId: req.admin.tenantId,
+    });
+
+    if (recorded) {
+      return res.json({ status: 'captured', transactionId: recorded._id, amount: recorded.amount });
+    }
+
+    // Optionally: call Razorpay orders API to get live status
+    try {
+      const adminUser = await User.findById(req.admin.tenantId).select('+gatewayKeyId +gatewayKeySecret');
+      if (adminUser?.gatewayKeyId && adminUser?.gatewayKeySecret) {
+        const rzp = new Razorpay({ key_id: adminUser.gatewayKeyId, key_secret: adminUser.gatewayKeySecret });
+        const order = await rzp.orders.fetch(orderId);
+        if (order.status === 'paid') {
+          return res.json({ status: 'captured', razorpayStatus: order.status });
+        }
+        return res.json({ status: 'pending', razorpayStatus: order.status });
+      }
+    } catch (_) {
+      // Gracefully fall through if Razorpay fetch fails
+    }
+
+    res.json({ status: 'pending' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
 
 // Get all transactions
 router.get('/', async (req, res) => {
