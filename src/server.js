@@ -59,6 +59,11 @@ const authLimiter = rateLimit({
 
 // Middlewares
 app.use(cors());
+
+// Razorpay must receive the untouched request bytes so its HMAC signature can
+// be verified. Register this route before the JSON parser below.
+app.use('/api/webhooks/razorpay', webhookRoutes);
+
 app.use(express.json());
 
 // Serves customer KYC document files
@@ -68,10 +73,6 @@ app.use('/uploads', express.static('./uploads'));
 // PUBLIC ROUTES
 // ============================================
 app.use('/api/auth', authLimiter, authRoutes);
-
-// ── PUBLIC WEBHOOK (no JWT – Razorpay calls this directly) ───────────────────
-// Must use express.raw() so we can verify Razorpay HMAC signature
-app.use('/api/webhooks/razorpay', webhookRoutes);
 
 // Health check
 app.get('/', (req, res) => {
