@@ -38,11 +38,14 @@ router.post('/generate-qr', async (req, res) => {
     }
     const gatewayMessage = err?.error?.description || err?.description || err?.message;
     const isQrUnavailable = /url not found|qr.?code.*(not|unavailable|enabled)|feature/i.test(gatewayMessage || '');
-    res.status(isQrUnavailable ? 503 : 500).json({
-      message: isQrUnavailable
+    const isUpiDisabled = /upi transactions are not enabled|upi.*not enabled/i.test(gatewayMessage || '');
+    res.status(isQrUnavailable || isUpiDisabled ? 503 : 500).json({
+      message: isUpiDisabled
+        ? 'UPI payments are not enabled for this Razorpay merchant account. Activate UPI in Razorpay Dashboard or contact Razorpay Support, then try again.'
+        : isQrUnavailable
         ? 'Razorpay QR Codes API is not enabled for this account. Please ask Razorpay Support to activate Dynamic UPI QR Codes, then try again.'
         : (gatewayMessage || 'Failed to generate payment QR.'),
-      code: isQrUnavailable ? 'QR_API_NOT_ENABLED' : 'QR_GENERATION_FAILED',
+      code: isUpiDisabled ? 'UPI_NOT_ENABLED' : (isQrUnavailable ? 'QR_API_NOT_ENABLED' : 'QR_GENERATION_FAILED'),
     });
   }
 });
