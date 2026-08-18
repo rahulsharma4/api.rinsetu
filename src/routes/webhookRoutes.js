@@ -36,21 +36,25 @@ router.post('/:tenantId', express.raw({ type: 'application/json' }), async (req,
     const event = payload.event;
 
     // ── 2. Handle only payment.captured event ────────────────────────────
-    if (event !== 'payment.captured' && event !== 'order.paid') {
+    if (event !== 'payment.captured' && event !== 'order.paid' && event !== 'qr_code.credited') {
       return res.status(200).json({ message: 'Event acknowledged, no action required.' });
     }
 
     // Extract payment details from Razorpay payload
     const paymentData = payload.payload?.payment?.entity || payload.payload?.order?.entity;
+    const qrCodeData = payload.payload?.qr_code?.entity;
     if (!paymentData) {
       return res.status(400).json({ message: 'Invalid payload structure.' });
     }
 
-    const notes = paymentData.notes || {};
+    // QR-code webhooks include the QR entity; payment.captured may include the
+    // copied notes directly on payment. Accept both payload shapes.
+    const notes = paymentData.notes || qrCodeData?.notes || {};
     const { loanId, customerId, paymentType, notes: txNotes, borrowerName } = notes;
     const amount = (paymentData.amount || 0) / 100; // Convert paise → rupees
     const razorpayPaymentId = paymentData.id || paymentData.payment_id;
     const razorpayOrderId = paymentData.order_id || payload.payload?.order?.entity?.id;
+    const razorpayQrCodeId = paymentData.qr_code_id || paymentData.qrCodeId || qrCodeData?.id || '';
 
     if (!loanId || !customerId) {
       console.error('❌ Webhook missing loanId or customerId in notes:', notes);
@@ -75,6 +79,7 @@ router.post('/:tenantId', express.raw({ type: 'application/json' }), async (req,
       paymentDate: new Date(),
       notes: `UPI Auto-Pay via Razorpay. Ref: ${razorpayPaymentId}${txNotes ? '. ' + txNotes : ''}`,
       razorpayOrderId,
+      razorpayQrCodeId,
       razorpayPaymentId,
       gatewayStatus: 'captured',
     });

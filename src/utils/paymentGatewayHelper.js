@@ -24,13 +24,13 @@ async function getTenantRazorpayClient(tenantId) {
 }
 
 /**
- * Generates a Razorpay UPI Payment Order with embedded metadata.
+ * Generates a Razorpay single-use UPI QR with embedded metadata.
  * The metadata links the order to the exact loan/borrower so webhook can
  * auto-reconcile — even if multiple borrowers pay the same amount simultaneously.
  *
  * @param {string} tenantId - Admin's MongoDB ID (used to load their API keys)
  * @param {object} meta - { loanId, customerId, paymentType, amount, notes }
- * @returns {{ orderId, qrDataUrl, upiIntent, keyId, amount }}
+ * @returns {{ qrCodeId, qrImageUrl, imageContent, keyId, amount }}
  */
 export async function generateUPIPaymentOrder(tenantId, meta) {
   const { client, keyId } = await getTenantRazorpayClient(tenantId);
@@ -38,11 +38,18 @@ export async function generateUPIPaymentOrder(tenantId, meta) {
   const amountPaise = Math.round(parseFloat(meta.amount) * 100); // Razorpay expects paise
   if (amountPaise < 100) throw new Error('Minimum payment amount is ₹1.');
 
-  // Create Razorpay Order with metadata embedded for webhook reconciliation
-  const order = await client.orders.create({
-    amount: amountPaise,
-    currency: 'INR',
-    payment_capture: 1, // Auto-capture on payment
+  // Razorpay generates the real UPI payee address and QR image. A hand-built
+  // `upi://` URL cannot identify the merchant and therefore cannot be scanned.
+  // Use a 15-minute close window, accepted by Razorpay's QR API environments.
+  const closeBy = Math.floor(Date.now() / 1000) + 15 * 60;
+  const qrCode = await client.qrCode.create({
+    type: 'upi_qr',
+    name: `Loan repayment - ${meta.borrowerName || meta.loanId}`.slice(0, 40),
+    usage: 'single_use',
+    fixed_amount: true,
+    payment_amount: amountPaise,
+    description: 'RinSetu loan repayment',
+    close_by: closeBy,
     notes: {
       tenantId: String(tenantId),
       loanId: String(meta.loanId),
@@ -53,15 +60,13 @@ export async function generateUPIPaymentOrder(tenantId, meta) {
     },
   });
 
-  // Build UPI QR deep link for the order
-  // This URL is rendered into a QR code on the frontend
-  const upiIntent = `upi://pay?pa=&tr=${order.id}&am=${meta.amount}&cu=INR&tn=LoanRepayment`;
-
   return {
-    orderId: order.id,
+    qrCodeId: qrCode.id,
     amount: meta.amount,
     amountPaise,
-    upiIntent,
+    qrImageUrl: qrCode.image_url,
+    imageContent: qrCode.image_content,
+    closeBy: qrCode.close_by,
     keyId,
     currency: 'INR',
     // Notes echoed back so frontend can display borrower name

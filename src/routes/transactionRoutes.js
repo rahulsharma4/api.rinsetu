@@ -48,7 +48,7 @@ router.get('/check-status/:orderId', async (req, res) => {
   try {
     // Check if webhook has already recorded this payment
     const recorded = await Transaction.findOne({
-      razorpayOrderId: orderId,
+      $or: [{ razorpayOrderId: orderId }, { razorpayQrCodeId: orderId }],
       tenantId: req.admin.tenantId,
     });
 
@@ -56,16 +56,16 @@ router.get('/check-status/:orderId', async (req, res) => {
       return res.json({ status: 'captured', transactionId: recorded._id, amount: recorded.amount });
     }
 
-    // Optionally: call Razorpay orders API to get live status
+    // Poll the Razorpay QR itself while the webhook is in flight.
     try {
       const adminUser = await User.findById(req.admin.tenantId).select('+gatewayKeyId +gatewayKeySecret');
       if (adminUser?.gatewayKeyId && adminUser?.gatewayKeySecret) {
         const rzp = new Razorpay({ key_id: adminUser.gatewayKeyId, key_secret: adminUser.gatewayKeySecret });
-        const order = await rzp.orders.fetch(orderId);
-        if (order.status === 'paid') {
-          return res.json({ status: 'captured', razorpayStatus: order.status });
+        const qrCode = await rzp.qrCode.fetch(orderId);
+        if (Number(qrCode.payments_count_received) > 0 || Number(qrCode.payments_amount_received) > 0) {
+          return res.json({ status: 'captured', razorpayStatus: qrCode.status });
         }
-        return res.json({ status: 'pending', razorpayStatus: order.status });
+        return res.json({ status: 'pending', razorpayStatus: qrCode.status });
       }
     } catch (_) {
       // Gracefully fall through if Razorpay fetch fails

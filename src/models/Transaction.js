@@ -65,6 +65,10 @@ const transactionSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    razorpayQrCodeId: {
+      type: String,
+      default: '',
+    },
     razorpayPaymentId: {
       type: String,
       default: '',
