@@ -21,6 +21,7 @@
     "mongoose": "^8.5.2",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
+    "razorpay": "^2.9.6",
     "recharts": "^3.10.1",
     "xlsx": "^0.18.5"
   },
