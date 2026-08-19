@@ -178,13 +178,14 @@ router.get('/gateway-settings', async (req, res) => {
   try {
     const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
     const decoded = verifyToken(token, secret);
-    const user = await User.findById(decoded.id).select('+gatewayKeyId +gatewayWebhookSecret');
+    const user = await User.findById(decoded.id).select('+gatewayKeyId +gatewayKeySecret +gatewayWebhookSecret');
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     res.json({
       gatewayKeyId: user.gatewayKeyId || '',
       gatewayWebhookSecret: user.gatewayWebhookSecret || '',
-      isConfigured: !!(user.gatewayKeyId && user.gatewayKeyId.length > 0),
+      hasKeySecret: !!(user.gatewayKeySecret && user.gatewayKeySecret.length > 0),
+      isConfigured: !!(user.gatewayKeyId && user.gatewayKeyId.length > 0 && user.gatewayKeySecret && user.gatewayKeySecret.length > 0),
       webhookUrl: `${req.protocol}://${req.get('host')}/api/webhooks/razorpay/${decoded.id}`,
     });
   } catch (err) {
