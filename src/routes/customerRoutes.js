@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import XLSX from 'xlsx';
+import bcrypt from 'bcryptjs';
 import Customer from '../models/Customer.js';
 import Loan from '../models/Loan.js';
 import Installment from '../models/Installment.js';
@@ -82,27 +83,39 @@ router.post('/', async (req, res) => {
     collateralType,
     collateralDescription,
     collateralValue,
+    email,
+    password,
+    isPortalEnabled,
   } = req.body;
 
-  const customer = new Customer({
-    name,
-    phone,
-    address,
-    occupation,
-    aadharNumber,
-    panNumber,
-    bankAccountNumber,
-    guarantorName,
-    guarantorPhone,
-    guarantorAddress,
-    guarantorIdDoc,
-    collateralType,
-    collateralDescription,
-    collateralValue: collateralValue ? parseFloat(collateralValue) : 0,
-    tenantId: req.admin.tenantId,
-  });
-
   try {
+    let hashedPassword = undefined;
+    if (password && password.trim() !== '') {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(password.trim(), salt);
+    }
+
+    const customer = new Customer({
+      name,
+      phone,
+      address,
+      occupation,
+      aadharNumber,
+      panNumber,
+      bankAccountNumber,
+      guarantorName,
+      guarantorPhone,
+      guarantorAddress,
+      guarantorIdDoc,
+      collateralType,
+      collateralDescription,
+      collateralValue: collateralValue ? parseFloat(collateralValue) : 0,
+      tenantId: req.admin.tenantId,
+      email: email ? email.trim().toLowerCase() : undefined,
+      password: hashedPassword,
+      isPortalEnabled: !!isPortalEnabled,
+    });
+
     const newCustomer = await customer.save();
     
     // Audit Log
@@ -130,7 +143,22 @@ router.put('/:id', async (req, res) => {
     }
 
     const oldValue = customer.toObject();
-    const updates = req.body;
+    const updates = { ...req.body };
+
+    // Hashing password if updated, or discarding if blank
+    if (updates.password !== undefined) {
+      if (updates.password.trim() !== '') {
+        const salt = await bcrypt.genSalt(10);
+        updates.password = await bcrypt.hash(updates.password.trim(), salt);
+      } else {
+        delete updates.password; // Do not overwrite with empty string
+      }
+    }
+
+    if (updates.email !== undefined) {
+      updates.email = updates.email.trim().toLowerCase() || undefined;
+    }
+
     Object.keys(updates).forEach((key) => {
       customer[key] = updates[key];
     });

@@ -123,8 +123,88 @@ router.post('/:tenantId', express.raw({ type: 'application/json' }), async (req,
 
   } catch (err) {
     console.error('❌ Webhook processing error:', err.message);
-    // Return 200 to Razorpay so it doesn't retry endlessly on our app errors
     res.status(200).json({ message: 'Webhook received. Internal processing error logged.' });
+  }
+});
+
+// POST /api/webhooks/razorpay/test-webhook-simulate - Local dev mock trigger
+router.post('/test-webhook-simulate', express.json(), async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ message: 'Simulation not allowed in production.' });
+  }
+
+  const { qrCodeId, amount, loanId, customerId } = req.body;
+  if (!qrCodeId || !amount || !loanId || !customerId) {
+    return res.status(400).json({ message: 'qrCodeId, amount, loanId, and customerId are required.' });
+  }
+
+  try {
+    const LoanModel = (await import('../models/Loan.js')).default;
+    const loan = await LoanModel.findById(loanId);
+    if (!loan) return res.status(404).json({ message: 'Loan not found.' });
+
+    const tenantId = loan.tenantId;
+
+    // Check duplicate
+    const razorpayPaymentId = 'pay_MOCK' + Math.random().toString(36).substring(2, 10).toUpperCase();
+    const duplicate = await Transaction.findOne({ razorpayPaymentId, tenantId });
+    if (duplicate) return res.status(200).json({ message: 'Already processed.' });
+
+    // Record transaction
+    const newTx = await Transaction.create({
+      loanId,
+      customerId,
+      tenantId,
+      amount: Number(amount),
+      paymentType: 'both',
+      paymentMode: 'upi',
+      paymentDate: new Date(),
+      notes: `UPI Auto-Pay via Simulated Webhook. Ref: ${razorpayPaymentId}`,
+      razorpayOrderId: qrCodeId,
+      razorpayQrCodeId: qrCodeId,
+      razorpayPaymentId,
+      gatewayStatus: 'captured',
+    });
+
+    // Rebuild installment waterfall allocation
+    await rebuildInstallmentPayments(loanId);
+
+    // Queue WhatsApp receipt notification
+    try {
+      const InstallmentModel = (await import('../models/Installment.js')).default;
+      const loanDoc = await LoanModel.findById(loanId);
+      const insts = await InstallmentModel.find({ loanId });
+      let totalInterestAccrued = 0, totalInterestPaid = 0, totalPrincipalPaid = 0;
+      insts.forEach(inst => {
+        totalInterestAccrued += inst.interestComponent;
+        totalInterestPaid += inst.interestPaid || 0;
+        totalPrincipalPaid += inst.principalPaid || 0;
+      });
+      const outstanding = Math.max(0, loanDoc.principalAmount - totalPrincipalPaid)
+        + Math.max(0, totalInterestAccrued - totalInterestPaid);
+
+      const { queueNotification } = await import('../utils/notificationCompiler.js');
+      await queueNotification(customerId, loanId, 'payment_received', { amount, outstanding });
+    } catch (notifErr) {
+      console.warn('⚠️ Notification queuing failed (non-critical):', notifErr.message);
+    }
+
+    // Audit trail log
+    await logAuditAction(
+      'razorpay-webhook-simulation',
+      'UPI_PAYMENT_AUTO_CAPTURED',
+      `Simulated UPI repayment of ₹${amount} for borrower "${customerId}" via webhook simulation. Ref: ${razorpayPaymentId}`,
+      null,
+      newTx.toObject(),
+      req
+    );
+
+    console.log(`✅ UPI Simulated Auto-Payment logged: ₹${amount} for loan ${loanId}`);
+    res.status(200).json({ message: 'Simulated payment recorded successfully.' });
+
+  } catch (error) {
+    console.error('❌ Simulated webhook processing error:', error.message);
+    res.status(500).json({ message: 'Simulation failure: ' + error.message });
   }
 });
 

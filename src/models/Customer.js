@@ -74,6 +74,20 @@ const customerSchema = new mongoose.Schema(
         uploadedAt: { type: Date, default: Date.now }
       }
     ],
+    email: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      lowercase: true,
+    },
+    password: {
+      type: String,
+    },
+    isPortalEnabled: {
+      type: Boolean,
+      default: false,
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

@@ -4,6 +4,7 @@ import Customer from '../models/Customer.js';
 import Loan from '../models/Loan.js';
 import Installment from '../models/Installment.js';
 import Transaction from '../models/Transaction.js';
+import CashBook from '../models/CashBook.js';
 
 const router = express.Router();
 
@@ -55,53 +56,82 @@ router.post('/chat', async (req, res) => {
     return res.status(400).json({ message: 'Message is required' });
   }
 
+  const tenantId = req.admin.tenantId;
+  const lowerMsg = message.toLowerCase();
+
   try {
-    const summary = await getSystemContextSummary(req.admin.tenantId);
-    const apiKey = process.env.GEMINI_API_KEY;
+    let reply = "";
 
-    if (apiKey) {
-      // Direct call to Gemini API
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-      const systemPrompt = `You are a helpful Hinglish AI assistant for a money lender's CRM called "RinSetu".
-Here is the current state of the lender's database:
-- Total Customers: ${summary.totalCustomersCount}
-- Active Loans: ${summary.activeLoansCount}
-- Overdue Loans: ${summary.overdueLoansCount}
-- Total Capital Disbursed: ₹${summary.totalPrincipalLent}
-- Total Repayments Received: ₹${summary.totalReceived}
-- Total Overdue Outstanding: ₹${summary.totalOverdueAmount}
-- Overdue Borrowers: ${JSON.stringify(summary.overdueCustomersList)}
-- Today's Date: ${summary.systemDate}
-
-The lender is asking: "${message}"
-Please answer in a short, friendly, business-focused manner in a mix of Hindi and English (Hinglish). Use the exact figures provided in the summary above to answer the query. Do not do any calculations yourself; use the data. Keep it under 100 words.`;
-
-      const response = await axios.post(geminiUrl, {
-        contents: [{ parts: [{ text: systemPrompt }] }]
+    if (lowerMsg.includes('expected') || lowerMsg.includes('collection expected') || lowerMsg.includes('recovery')) {
+      // 1. Expected collection calculation
+      const startOfToday = new Date();
+      startOfToday.setHours(0,0,0,0);
+      const endOfToday = new Date();
+      endOfToday.setHours(23,59,59,999);
+      
+      const loans = await Loan.find({ tenantId });
+      const loanIds = loans.map(l => l._id);
+      const todaysInstallments = await Installment.find({
+        loanId: { $in: loanIds },
+        dueDate: { $gte: startOfToday, $lte: endOfToday }
       });
 
-      const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Mafi chahta hu, mai abhi response generate nahi kar pa raha hu.";
-      return res.json({ reply });
+      const expectedToday = todaysInstallments.reduce((acc, i) => acc + i.totalAmount, 0);
+      const paidToday = todaysInstallments.reduce((acc, i) => acc + i.amountPaid, 0);
+      const pendingToday = Math.max(0, expectedToday - paidToday);
+
+      reply = `Sir, aaj ka total expected collection **₹${expectedToday.toLocaleString('en-IN')}** hai. Isme se abhi tak **₹${paidToday.toLocaleString('en-IN')}** collect ho chuka hai, aur **₹${pendingToday.toLocaleString('en-IN')}** expected collection pending chal raha hai.`;
+
+    } else if (lowerMsg.includes('overdue') || lowerMsg.includes('check overdue') || lowerMsg.includes('baki')) {
+      // 2. Overdue loans check
+      const overdueLoans = await Loan.find({ tenantId, status: 'overdue' }).populate('customerId');
+      const loanIds = overdueLoans.map(l => l._id);
+      const overdueInsts = await Installment.find({ loanId: { $in: loanIds }, status: 'overdue' });
+      
+      const totalOverdue = overdueInsts.reduce((acc, i) => acc + (i.totalAmount - i.amountPaid), 0);
+      const uniqueNames = Array.from(new Set(overdueLoans.map(l => l.customerId?.name).filter(Boolean)));
+
+      reply = `Sir, system me abhi total **${overdueLoans.length} accounts overdue** (विलंबित) chal rahe hain. Kul overdue outstanding amount **₹${totalOverdue.toLocaleString('en-IN')}** hai. Mukhya overdue clients me **${uniqueNames.slice(0, 5).join(', ') || 'koi nahi'}** shamil hain. Aap inke contacts check karke warning reminder bhej sakte hain.`;
+
+    } else if (lowerMsg.includes('cash book') || lowerMsg.includes('cashbook') || lowerMsg.includes('balance')) {
+      // 3. Cash Book balance
+      const entries = await CashBook.find({ tenantId });
+      let openingBalance = 0;
+      let totalCollected = 0;
+      let totalDisbursed = 0;
+      let expenses = 0;
+
+      entries.forEach(entry => {
+        if (entry.type === 'opening_balance') {
+          openingBalance += entry.amount;
+        } else if (entry.type === 'collection') {
+          totalCollected += entry.amount;
+        } else if (entry.type === 'disbursement') {
+          totalDisbursed += entry.amount;
+        } else if (entry.type === 'expense') {
+          expenses += entry.amount;
+        }
+      });
+
+      const closingBalance = openingBalance + totalCollected - totalDisbursed - expenses;
+
+      reply = `Sir, aapke Cash Book ka current drawer balance details:
+- Opening Balance: **₹${openingBalance.toLocaleString('en-IN')}**
+- Total Collected: **₹${totalCollected.toLocaleString('en-IN')}**
+- Total Disbursed: **₹${totalDisbursed.toLocaleString('en-IN')}**
+- Total Expenses: **₹${expenses.toLocaleString('en-IN')}**
+- **Net Cash Closing Balance: ₹${closingBalance.toLocaleString('en-IN')}**`;
+
     } else {
-      // NLP Fallback Engine (Keyword matching)
-      const text = message.toLowerCase();
-      let reply = "";
-
-      if (text.includes('overdue') || text.includes('baki') || text.includes('nuksan') || text.includes('late')) {
-        reply = `Sir, abhi system me total **${summary.overdueLoansCount} loans overdue** chal rahe hain. Kul overdue amount **₹${summary.totalOverdueAmount.toLocaleString('en-IN')}** hai. Overdue list me main borrowers: ${summary.overdueCustomersList.map(c => c.name).join(', ') || 'None'} hain.`;
-      } else if (text.includes('aaj') || text.includes('collection') || text.includes('due') || text.includes('aana')) {
-        reply = `Aaj ki summary: Total active accounts **${summary.activeLoansCount}** hain. System me aaj expected recovery check karne ke liye Collections tab me 'Today's Due' dekhein. Abhi tak hume total **₹${summary.totalReceived.toLocaleString('en-IN')}** received ho chuke hain.`;
-      } else if (text.includes('profit') || text.includes('kamai') || text.includes('byaj') || text.includes('interest')) {
-        reply = `Sir, abhi tak total disbursed capital **₹${summary.totalPrincipalLent.toLocaleString('en-IN')}** hai. Kul repayment amount **₹${summary.totalReceived.toLocaleString('en-IN')}** collect ho chuka hai.`;
-      } else {
-        reply = `Namaste! Mai RinSetu ka AI Assistant hu. Aap mujhse overdue clients, total collections, ya business profit se jude sawal puch sakte hain. (e.g. "Kitne log overdue hain?")`;
-      }
-
-      return res.json({ reply });
+      // 4. Default user guide / instructions fallback
+      reply = `Namaste! Mai RinSetu ka AI Assistant hu. 
+Aap mujhse expected collections, overdue files, ya cash book balance se jude sawal preset options par click karke puch sakte hain. Kripya niche diye chips ko select karein.`;
     }
+
+    res.json({ reply });
   } catch (error) {
-    console.error('AI Chat Error:', error.message);
-    res.status(500).json({ reply: 'AI server processing error. Kripya bad me try karein.' });
+    console.error('Calculated AI Chat Error:', error);
+    res.status(500).json({ reply: 'Server local calculation error: ' + error.message });
   }
 });
 

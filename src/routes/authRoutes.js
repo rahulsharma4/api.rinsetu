@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
+import Customer from '../models/Customer.js';
 import { signToken, verifyToken } from '../utils/jwtHelper.js';
 
 dotenv.config();
@@ -16,15 +17,50 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    // Find user in database
-    const user = await User.findOne({ username: username.trim().toLowerCase() });
+    // Find user in User (admin/manager/collector)
+    let user = await User.findOne({ username: username.trim().toLowerCase() });
+    
+    let isBorrower = false;
+    let customer = null;
+
+    // If not in User, look in Customer (borrower) by email
     if (!user) {
-      console.log(`🔐 Login failed: user "${username}" not found.`);
+      customer = await Customer.findOne({ email: username.trim().toLowerCase() });
+      if (customer) {
+        if (!customer.isPortalEnabled) {
+          return res.status(403).json({ message: 'Aapke account ke liye portal access abhi enabled nahi hai.' });
+        }
+        isBorrower = true;
+      }
+    }
+
+    if (!user && !customer) {
+      console.log(`🔐 Login failed: credentials "${username}" not found.`);
+      return res.status(401).json({ message: 'Galat username ya password. Dobara try karein.' });
+    }
+
+    // Verify password using bcryptjs
+    const targetPasswordHash = isBorrower ? customer.password : user.password;
+    if (!targetPasswordHash) {
+      return res.status(401).json({ message: 'Password configured nahi hai. Tenant admin se contact karein.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, targetPasswordHash);
+    
+    // Debug log (server console)
+    console.log(`🔐 Login attempt: user="${username}" | role=${isBorrower ? 'borrower' : 'user'} | pwd_match=${isMatch}`);
+
+    if (!isMatch) {
       return res.status(401).json({ message: 'Galat username ya password. Dobara try karein.' });
     }
 
     // Verify status (Suspended check)
-    if (user.role !== 'super-admin') {
+    if (isBorrower) {
+      const tenantAdmin = await User.findById(customer.tenantId);
+      if (!tenantAdmin || tenantAdmin.status === 'Suspended') {
+        return res.status(403).json({ message: 'Aapka business tenant portal suspend ho chuka hai. Admin se contact karein.' });
+      }
+    } else if (user.role !== 'super-admin') {
       const tenantAdmin = await User.findById(user.tenantId);
       if (tenantAdmin && tenantAdmin.status === 'Suspended') {
         return res.status(403).json({ message: 'Aapka business tenant portal suspend kar diya gaya hai. Super Admin se contact karein.' });
@@ -34,44 +70,62 @@ router.post('/login', async (req, res) => {
       }
     }
 
-    // Verify password using bcryptjs
-    const isMatch = await bcrypt.compare(password, user.password);
-    
-    // Debug log (server console)
-    console.log(`🔐 Login attempt: user="${username}" | db_user_found=true | pwd_match=${isMatch}`);
-
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Galat username ya password. Dobara try karein.' });
-    }
-
     const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
-    // 24 hours token validity
-    const token = signToken({ username: user.username, role: user.role, id: user._id, tenantId: user.tenantId }, secret, 86400);
+    let tokenPayload = {};
+    let adminPayload = {};
 
-    console.log('✅ Login successful for:', user.username);
-    
-    let subscriptionStatus = 'active';
-    let renewalDate = null;
-    if (user.role !== 'super-admin') {
-      const tenantAdmin = await User.findById(user.tenantId);
-      if (tenantAdmin) {
-        subscriptionStatus = tenantAdmin.subscriptionStatus;
-        renewalDate = tenantAdmin.renewalDate;
+    if (isBorrower) {
+      const tenantAdmin = await User.findById(customer.tenantId);
+      tokenPayload = {
+        username: customer.email,
+        role: 'borrower',
+        id: customer._id,
+        tenantId: customer.tenantId
+      };
+      adminPayload = {
+        username: customer.email,
+        role: 'borrower',
+        name: customer.name,
+        tenantId: customer.tenantId,
+        businessName: tenantAdmin?.businessName || 'Lender Panel',
+        subscriptionStatus: tenantAdmin?.subscriptionStatus || 'active',
+        renewalDate: tenantAdmin?.renewalDate || null
+      };
+    } else {
+      let subscriptionStatus = 'active';
+      let renewalDate = null;
+      if (user.role !== 'super-admin') {
+        const tenantAdmin = await User.findById(user.tenantId);
+        if (tenantAdmin) {
+          subscriptionStatus = tenantAdmin.subscriptionStatus;
+          renewalDate = tenantAdmin.renewalDate;
+        }
       }
-    }
-
-    res.json({
-      message: 'Login successful',
-      token,
-      admin: { 
-        username: user.username, 
-        role: user.role, 
-        name: user.name, 
-        tenantId: user.tenantId, 
+      tokenPayload = {
+        username: user.username,
+        role: user.role,
+        id: user._id,
+        tenantId: user.tenantId
+      };
+      adminPayload = {
+        username: user.username,
+        role: user.role,
+        name: user.name,
+        tenantId: user.tenantId,
         businessName: user.businessName,
         subscriptionStatus,
         renewalDate
-      }
+      };
+    }
+
+    // 24 hours token validity
+    const token = signToken(tokenPayload, secret, 86400);
+
+    console.log('✅ Login successful for:', tokenPayload.username);
+    res.json({
+      message: 'Login successful',
+      token,
+      admin: adminPayload
     });
   } catch (error) {
     console.error('❌ Error during login:', error);
@@ -92,15 +146,38 @@ router.post('/verify', async (req, res) => {
     const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
     const decoded = verifyToken(token, secret);
     
-    const user = await User.findOne({ username: decoded.username });
-    if (!user) {
-      return res.status(401).json({ valid: false, message: 'User database mein nahi mila.' });
+    let isBorrower = decoded.role === 'borrower';
+    let user = null;
+    let customer = null;
+
+    if (isBorrower) {
+      customer = await Customer.findById(decoded.id);
+      if (!customer) {
+        return res.status(401).json({ valid: false, message: 'User database mein nahi mila.' });
+      }
+      if (!customer.isPortalEnabled) {
+        return res.status(403).json({ valid: false, message: 'Portal access disabled.' });
+      }
+    } else {
+      user = await User.findOne({ username: decoded.username });
+      if (!user) {
+        return res.status(401).json({ valid: false, message: 'User database mein nahi mila.' });
+      }
     }
 
     let subscriptionStatus = 'active';
     let renewalDate = null;
 
-    if (user.role !== 'super-admin') {
+    if (isBorrower) {
+      const tenantAdmin = await User.findById(customer.tenantId);
+      if (tenantAdmin) {
+        subscriptionStatus = tenantAdmin.subscriptionStatus;
+        renewalDate = tenantAdmin.renewalDate;
+      }
+      if (tenantAdmin && tenantAdmin.status === 'Suspended') {
+        return res.status(403).json({ valid: false, message: 'Aapka business tenant portal suspend ho chuka hai.' });
+      }
+    } else if (user.role !== 'super-admin') {
       const tenantAdmin = await User.findById(user.tenantId);
       if (tenantAdmin) {
         subscriptionStatus = tenantAdmin.subscriptionStatus;
@@ -114,19 +191,31 @@ router.post('/verify', async (req, res) => {
       }
     }
 
+    const adminPayload = isBorrower ? {
+      username: customer.email,
+      role: 'borrower',
+      name: customer.name,
+      tenantId: customer.tenantId,
+      businessName: (await User.findById(customer.tenantId))?.businessName || 'Lender Panel',
+      isImpersonating: false,
+      superAdminUsername: null,
+      subscriptionStatus,
+      renewalDate
+    } : {
+      username: user.username,
+      role: user.role,
+      name: user.name,
+      tenantId: user.tenantId,
+      businessName: user.businessName,
+      isImpersonating: decoded.isImpersonating || false,
+      superAdminUsername: decoded.superAdminUsername || null,
+      subscriptionStatus,
+      renewalDate
+    };
+
     res.json({
       valid: true,
-      admin: {
-        username: user.username,
-        role: user.role,
-        name: user.name,
-        tenantId: user.tenantId,
-        businessName: user.businessName,
-        isImpersonating: decoded.isImpersonating || false,
-        superAdminUsername: decoded.superAdminUsername || null,
-        subscriptionStatus,
-        renewalDate
-      }
+      admin: adminPayload
     });
   } catch (err) {
     res.status(401).json({ valid: false, message: 'Token expire ho gaya ya galat hai.' });

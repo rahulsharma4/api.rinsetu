@@ -34,6 +34,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import superAdminRoutes from './routes/superAdminRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import subscriptionRoutes, { subscriptionWebhookHandler } from './routes/subscriptionRoutes.js';
+import borrowerRoutes from './routes/borrowerRoutes.js';
 import { subscriptionMiddleware } from './middleware/subscriptionMiddleware.js';
 
 import { startCronEngine } from './utils/cronJob.js';
@@ -97,6 +98,7 @@ app.use('/api/reports', authMiddleware, subscriptionMiddleware, reportRoutes);
 app.use('/api/settings', authMiddleware, subscriptionMiddleware, settingsRoutes);
 app.use('/api/notifications', authMiddleware, subscriptionMiddleware, notificationRoutes);
 app.use('/api/superadmin', authMiddleware, superAdminRoutes);
+app.use('/api/borrower', subscriptionMiddleware, borrowerRoutes);
 
 // ============================================
 // EXPRESS SERVER PEHLE START KARO
