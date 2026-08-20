@@ -1,8 +1,20 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import axios from 'axios';
+import dns from 'dns';
 import Loan from '../models/Loan.js';
 import User from '../models/User.js';
+import Customer from '../models/Customer.js';
+
+// Force DNS to resolve IPv4 first (fixes MongoDB querySrv ECONNREFUSED in local ISPs)
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+  if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+  }
+} catch (err) {
+  console.warn('⚠️ DNS custom configuration failed (ignoring):', err.message);
+}
 
 dotenv.config();
 
