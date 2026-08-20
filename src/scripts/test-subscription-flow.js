@@ -18,39 +18,65 @@ async function run() {
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('✅ Connected.');
 
-  // 1. Create or Find Pricing Plans
-  console.log('\n--- 1. CONFIGURING PRICING PLANS ---');
-  let basicPlan = await Plan.findOne({ name: 'Starter Basic Plan' });
-  if (!basicPlan) {
-    basicPlan = new Plan({
-      name: 'Starter Basic Plan',
-      price: 499,
-      durationDays: 30,
-      maxBorrowers: 50,
-      features: ['Up to 50 active borrowers', 'Waterfall interest logic', 'Basic reports'],
-      isActive: true,
-    });
-    await basicPlan.save();
-    console.log('Created Starter Basic Plan: ₹499/mo');
-  } else {
-    console.log('Starter Basic Plan already exists.');
-  }
+  // Clear existing pricing plans to start fresh with duration plans
+  console.log('🧹 Clearing legacy pricing plans...');
+  await Plan.deleteMany({});
 
-  let premiumPlan = await Plan.findOne({ name: 'Premium Unlimited Plan' });
-  if (!premiumPlan) {
-    premiumPlan = new Plan({
-      name: 'Premium Unlimited Plan',
-      price: 999,
-      durationDays: 30,
-      maxBorrowers: -1,
-      features: ['Unlimited borrowers', 'WhatsApp auto-repayment alerts', 'Waterfall principal/interest', 'Premium SaaS support'],
-      isActive: true,
-    });
-    await premiumPlan.save();
-    console.log('Created Premium Unlimited Plan: ₹999/mo');
-  } else {
-    console.log('Premium Unlimited Plan already exists.');
-  }
+  // 1. Create Duration Pricing Plans with identical full functionality
+  console.log('\n--- 1. CONFIGURING DURATION-BASED PRICING PLANS ---');
+  
+  const p1 = new Plan({
+    name: '1 Month Subscription',
+    price: 499,
+    durationDays: 30,
+    maxBorrowers: -1, // unlimited
+    features: [
+      'Full CRM Ledger Access',
+      'Automatic Razorpay UPI QR',
+      'Waterfall Installment Engine',
+      'Automated WhatsApp Alerts',
+      'Audit Trail logs',
+    ],
+    isActive: true,
+  });
+  await p1.save();
+  console.log('Created 1 Month Plan: ₹499');
+
+  const p6 = new Plan({
+    name: '6 Months Saver Plan',
+    price: 2499,
+    durationDays: 180,
+    maxBorrowers: -1, // unlimited
+    features: [
+      'Full CRM Ledger Access',
+      'Automatic Razorpay UPI QR',
+      'Waterfall Installment Engine',
+      'Automated WhatsApp Alerts',
+      'Audit Trail logs',
+      'Save ₹500 over monthly plan!',
+    ],
+    isActive: true,
+  });
+  await p6.save();
+  console.log('Created 6 Months Plan: ₹2,499 (Save ₹500)');
+
+  const p12 = new Plan({
+    name: '12 Months Annual Plan',
+    price: 4499,
+    durationDays: 360,
+    maxBorrowers: -1, // unlimited
+    features: [
+      'Full CRM Ledger Access',
+      'Automatic Razorpay UPI QR',
+      'Waterfall Installment Engine',
+      'Automated WhatsApp Alerts',
+      'Audit Trail logs',
+      'Save ₹1,500 over monthly plan!',
+    ],
+    isActive: true,
+  });
+  await p12.save();
+  console.log('Created 12 Months Plan: ₹4,499 (Save ₹1,500)');
 
   // 2. Find admin12 and expire their subscription for testing
   console.log('\n--- 2. UPDATING TENANT SUBSCRIPTION STATUS FOR TESTING ---');
@@ -66,7 +92,7 @@ async function run() {
 
   tenant.subscriptionStatus = 'expired';
   tenant.renewalDate = pastDate;
-  tenant.subscriptionPlan = basicPlan._id;
+  tenant.subscriptionPlan = p1._id;
   tenant.isFreeAccess = false;
   tenant.customPrice = undefined; // reset custom price
 
@@ -75,8 +101,8 @@ async function run() {
   console.log(`📅 Renewal Date set to: ${tenant.renewalDate.toISOString()}`);
   console.log('\n🎉 TEST SETUP READY!');
   console.log('💡 Now, open your browser dashboard (http://localhost:3000) and log in as "admin12".');
-  console.log('💡 You will immediately see the Expired Subscription page blocking the dashboard!');
-  console.log('💡 Click "Buy / Switch Plan" on any plan to test the auto-renewal simulation.');
+  console.log('💡 You will see the updated 1 Month, 6 Months, and 12 Months plans displayed with identical features!');
+  console.log('💡 You will also find a "Billing & Subscription" tab in the side menu.');
 
   await mongoose.disconnect();
 }
