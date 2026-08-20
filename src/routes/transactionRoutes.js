@@ -31,6 +31,16 @@ router.post('/generate-qr', async (req, res) => {
     res.json(result);
   } catch (err) {
     if (err.message === 'GATEWAY_NOT_CONFIGURED') {
+      if (process.env.NODE_ENV !== 'production') {
+        return res.json({
+          qrCodeId: 'mock_qr_' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+          amount: amount,
+          qrImageUrl: 'simulated_qr_url',
+          keyId: 'mock_key',
+          currency: 'INR',
+          borrowerName,
+        });
+      }
       return res.status(422).json({
         message: 'Payment gateway not configured. Please add your Razorpay API keys in Settings → Payment Settings.',
         code: 'GATEWAY_NOT_CONFIGURED',

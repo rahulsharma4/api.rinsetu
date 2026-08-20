@@ -212,8 +212,8 @@ export async function rebuildInstallmentPayments(loanId) {
     }
   );
 
-  // 3. Fetch all transactions sorted by date ascending
-  const transactions = await Transaction.find({ loanId }).sort({ paymentDate: 1 });
+  // 3. Fetch all transactions sorted by date ascending (excluding reversed ones)
+  const transactions = await Transaction.find({ loanId, isReversed: { $ne: true } }).sort({ paymentDate: 1 });
 
   // 4. Re-apply each transaction waterfall
   for (const tx of transactions) {

@@ -186,6 +186,19 @@ router.post('/', async (req, res) => {
     }));
     await Installment.insertMany(installmentDocs);
 
+    // Write to Cash Book double-entry system (outflow)
+    const CashBook = (await import('../models/CashBook.js')).default;
+    await CashBook.create({
+      paymentDate: newLoan.startDate || new Date(),
+      type: 'disbursement',
+      amount: newLoan.principalAmount,
+      paymentMode: 'cash', // Default to cash disbursement
+      customerId: newLoan.customerId,
+      loanId: newLoan._id,
+      notes: `Auto-recorded loan disbursement for Agreement #${newLoan._id.toString().slice(-6)}`,
+      tenantId: req.admin.tenantId,
+    });
+
     // Audit Log
     await logAuditAction(
       req.admin?.username || 'admin',
@@ -288,6 +301,11 @@ router.delete('/:id', async (req, res) => {
     const oldValue = loan.toObject();
     await Installment.deleteMany({ loanId: loan._id });
     await Transaction.deleteMany({ loanId: loan._id });
+
+    // Also delete CashBook logs for this loan (both disbursements and collections)
+    const CashBook = (await import('../models/CashBook.js')).default;
+    await CashBook.deleteMany({ loanId: loan._id });
+
     await Loan.deleteOne({ _id: loan._id });
 
     // Audit Log

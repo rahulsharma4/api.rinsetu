@@ -70,8 +70,13 @@ export async function restructureLoan(loanId, newInterestRate, newRateType, newP
 
   const savedLoan = await restructuredLoan.save();
 
-  // 5. Generate new installment schedule
-  await generateRepaymentSchedule(savedLoan);
+  // 5. Generate and save new installment schedule
+  const schedule = generateRepaymentSchedule(savedLoan);
+  const installmentDocs = schedule.map(item => ({
+    loanId: savedLoan._id,
+    ...item
+  }));
+  await Installment.insertMany(installmentDocs);
 
   return savedLoan;
 }
