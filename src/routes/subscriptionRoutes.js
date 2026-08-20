@@ -182,6 +182,8 @@ export async function subscriptionWebhookHandler(req, res) {
     console.error('❌ Subscription Webhook error:', error.message);
     res.status(200).json({ message: 'Processed with internal error logged.' });
   }
+}
+
 // POST /api/subscriptions/verify-payment - Verify Razorpay signature and extend subscription
 router.post('/verify-payment', authMiddleware, async (req, res) => {
   const tenantId = req.admin?.tenantId;
