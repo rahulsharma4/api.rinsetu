@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import Settings from '../models/Settings.js';
+import Plan from '../models/Plan.js';
 import Customer from '../models/Customer.js';
 import Loan from '../models/Loan.js';
 import Transaction from '../models/Transaction.js';
@@ -26,7 +27,7 @@ router.use((req, res, next) => {
 // GET /api/superadmin/tenants - List all lender tenant admins
 router.get('/tenants', async (req, res) => {
   try {
-    const tenants = await User.find({ role: 'admin' }).sort({ createdAt: -1 });
+    const tenants = await User.find({ role: 'admin' }).populate('subscriptionPlan').sort({ createdAt: -1 });
     
     const tenantList = await Promise.all(
       tenants.map(async (t) => {
@@ -43,7 +44,14 @@ router.get('/tenants', async (req, res) => {
           status: t.status || 'Active',
           customerCount,
           loanCount,
-          activeLoans
+          activeLoans,
+          subscriptionStatus: t.subscriptionStatus,
+          subscriptionPlan: t.subscriptionPlan,
+          trialStartDate: t.trialStartDate,
+          trialEndDate: t.trialEndDate,
+          renewalDate: t.renewalDate,
+          isFreeAccess: t.isFreeAccess,
+          customPrice: t.customPrice,
         };
       })
     );
@@ -234,6 +242,130 @@ router.post('/impersonate/:tenantId', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// ── PLANS CRUD ENDPOINTS ───────────────────────────────────────────────────
+
+// GET /api/superadmin/plans - List all pricing plans
+router.get('/plans', async (req, res) => {
+  try {
+    const plans = await Plan.find({}).sort({ price: 1 });
+    res.json(plans);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /api/superadmin/plans - Create a new pricing plan
+router.post('/plans', async (req, res) => {
+  const { name, price, durationDays, maxBorrowers, features, isActive } = req.body;
+  if (!name || price === undefined) {
+    return res.status(400).json({ message: 'Plan name aur price zaroori hain.' });
+  }
+
+  try {
+    const newPlan = new Plan({
+      name,
+      price,
+      durationDays: durationDays || 30,
+      maxBorrowers: maxBorrowers !== undefined ? maxBorrowers : -1,
+      features: features || [],
+      isActive: isActive !== undefined ? isActive : true,
+    });
+    await newPlan.save();
+    res.status(201).json(newPlan);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// PUT /api/superadmin/plans/:id - Update an existing pricing plan
+router.put('/plans/:id', async (req, res) => {
+  try {
+    const plan = await Plan.findById(req.params.id);
+    if (!plan) return res.status(404).json({ message: 'Plan nahi mila.' });
+
+    const { name, price, durationDays, maxBorrowers, features, isActive } = req.body;
+    if (name !== undefined) plan.name = name;
+    if (price !== undefined) plan.price = price;
+    if (durationDays !== undefined) plan.durationDays = durationDays;
+    if (maxBorrowers !== undefined) plan.maxBorrowers = maxBorrowers;
+    if (features !== undefined) plan.features = features;
+    if (isActive !== undefined) plan.isActive = isActive;
+
+    await plan.save();
+    res.json(plan);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// DELETE /api/superadmin/plans/:id - Delete a pricing plan
+router.delete('/plans/:id', async (req, res) => {
+  try {
+    const plan = await Plan.findById(req.params.id);
+    if (!plan) return res.status(404).json({ message: 'Plan nahi mila.' });
+
+    await Plan.deleteOne({ _id: req.params.id });
+    res.json({ message: `Plan "${plan.name}" successfully deleted.` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── TENANT SUBSCRIPTION OVERRIDES ──────────────────────────────────────────
+
+// PUT /api/superadmin/tenants/:id/subscription - Override tenant subscription settings
+router.put('/tenants/:id/subscription', async (req, res) => {
+  const { subscriptionPlan, renewalDate, isFreeAccess, customPrice, subscriptionStatus } = req.body;
+
+  try {
+    const tenant = await User.findOne({ _id: req.params.id, role: 'admin' });
+    if (!tenant) {
+      return res.status(404).json({ message: 'Tenant not found.' });
+    }
+
+    if (subscriptionPlan !== undefined) {
+      if (subscriptionPlan === '') {
+        tenant.subscriptionPlan = undefined;
+      } else {
+        const planExists = await Plan.findById(subscriptionPlan);
+        if (!planExists) return res.status(400).json({ message: 'Plan ID exist nahi karta.' });
+        tenant.subscriptionPlan = subscriptionPlan;
+      }
+    }
+
+    if (renewalDate !== undefined) {
+      tenant.renewalDate = new Date(renewalDate);
+      // Reset status to active or trial depending on date
+      const now = new Date();
+      if (new Date(renewalDate) > now) {
+        tenant.subscriptionStatus = subscriptionStatus || (tenant.subscriptionStatus === 'expired' ? 'active' : tenant.subscriptionStatus);
+      } else {
+        tenant.subscriptionStatus = 'expired';
+      }
+    }
+
+    if (subscriptionStatus !== undefined) {
+      tenant.subscriptionStatus = subscriptionStatus;
+    }
+
+    if (isFreeAccess !== undefined) {
+      tenant.isFreeAccess = !!isFreeAccess;
+    }
+
+    if (customPrice !== undefined) {
+      tenant.customPrice = customPrice === '' || customPrice === null ? undefined : Number(customPrice);
+    }
+
+    await tenant.save();
+    res.json({
+      message: `Tenant "${tenant.businessName}" subscription updated successfully.`,
+      tenant,
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 });
 

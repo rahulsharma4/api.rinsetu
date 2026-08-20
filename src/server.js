@@ -33,6 +33,8 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import superAdminRoutes from './routes/superAdminRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
+import subscriptionRoutes, { subscriptionWebhookHandler } from './routes/subscriptionRoutes.js';
+import { subscriptionMiddleware } from './middleware/subscriptionMiddleware.js';
 
 import { startCronEngine } from './utils/cronJob.js';
 import { seedAdminUser, cleanupDefaultAdmin } from './utils/dbSeeder.js';
@@ -63,8 +65,11 @@ app.use(cors());
 // Razorpay must receive the untouched request bytes so its HMAC signature can
 // be verified. Register this route before the JSON parser below.
 app.use('/api/webhooks/razorpay', webhookRoutes);
+app.post('/api/subscriptions/webhooks/renewals', express.raw({ type: 'application/json' }), subscriptionWebhookHandler);
 
 app.use(express.json());
+
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // Serves customer KYC document files
 app.use('/uploads', express.static('./uploads'));
@@ -83,14 +88,14 @@ app.get('/', (req, res) => {
 // ============================================
 // PROTECTED ROUTES (JWT + MongoDB zaroori)
 // ============================================
-app.use('/api/customers', authMiddleware, customerRoutes);
-app.use('/api/loans', authMiddleware, loanRoutes);
-app.use('/api/transactions', authMiddleware, transactionRoutes);
-app.use('/api/ai', authMiddleware, aiRoutes);
-app.use('/api/collection', authMiddleware, collectionRoutes);
-app.use('/api/reports', authMiddleware, reportRoutes);
-app.use('/api/settings', authMiddleware, settingsRoutes);
-app.use('/api/notifications', authMiddleware, notificationRoutes);
+app.use('/api/customers', authMiddleware, subscriptionMiddleware, customerRoutes);
+app.use('/api/loans', authMiddleware, subscriptionMiddleware, loanRoutes);
+app.use('/api/transactions', authMiddleware, subscriptionMiddleware, transactionRoutes);
+app.use('/api/ai', authMiddleware, subscriptionMiddleware, aiRoutes);
+app.use('/api/collection', authMiddleware, subscriptionMiddleware, collectionRoutes);
+app.use('/api/reports', authMiddleware, subscriptionMiddleware, reportRoutes);
+app.use('/api/settings', authMiddleware, subscriptionMiddleware, settingsRoutes);
+app.use('/api/notifications', authMiddleware, subscriptionMiddleware, notificationRoutes);
 app.use('/api/superadmin', authMiddleware, superAdminRoutes);
 
 // ============================================

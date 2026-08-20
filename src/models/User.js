@@ -51,6 +51,35 @@ const userSchema = new mongoose.Schema(
       default: '',
       select: false,
     },
+    // ── SaaS Subscription & Billing ──────────────────────────────────────
+    subscriptionStatus: {
+      type: String,
+      enum: ['trial', 'active', 'expired', 'suspended'],
+      default: 'trial',
+    },
+    subscriptionPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Plan',
+    },
+    trialStartDate: {
+      type: Date,
+      default: Date.now,
+    },
+    trialEndDate: {
+      type: Date,
+      default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default 30 days trial
+    },
+    renewalDate: {
+      type: Date,
+      default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    },
+    isFreeAccess: {
+      type: Boolean,
+      default: false,
+    },
+    customPrice: {
+      type: Number,
+    },
   },
   {
     timestamps: true,

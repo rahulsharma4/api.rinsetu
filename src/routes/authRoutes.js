@@ -49,10 +49,29 @@ router.post('/login', async (req, res) => {
     const token = signToken({ username: user.username, role: user.role, id: user._id, tenantId: user.tenantId }, secret, 86400);
 
     console.log('✅ Login successful for:', user.username);
+    
+    let subscriptionStatus = 'active';
+    let renewalDate = null;
+    if (user.role !== 'super-admin') {
+      const tenantAdmin = await User.findById(user.tenantId);
+      if (tenantAdmin) {
+        subscriptionStatus = tenantAdmin.subscriptionStatus;
+        renewalDate = tenantAdmin.renewalDate;
+      }
+    }
+
     res.json({
       message: 'Login successful',
       token,
-      admin: { username: user.username, role: user.role, name: user.name, tenantId: user.tenantId, businessName: user.businessName }
+      admin: { 
+        username: user.username, 
+        role: user.role, 
+        name: user.name, 
+        tenantId: user.tenantId, 
+        businessName: user.businessName,
+        subscriptionStatus,
+        renewalDate
+      }
     });
   } catch (error) {
     console.error('❌ Error during login:', error);
@@ -78,8 +97,15 @@ router.post('/verify', async (req, res) => {
       return res.status(401).json({ valid: false, message: 'User database mein nahi mila.' });
     }
 
+    let subscriptionStatus = 'active';
+    let renewalDate = null;
+
     if (user.role !== 'super-admin') {
       const tenantAdmin = await User.findById(user.tenantId);
+      if (tenantAdmin) {
+        subscriptionStatus = tenantAdmin.subscriptionStatus;
+        renewalDate = tenantAdmin.renewalDate;
+      }
       if (tenantAdmin && tenantAdmin.status === 'Suspended') {
         return res.status(403).json({ valid: false, message: 'Aapka business tenant portal suspend ho chuka hai.' });
       }
@@ -97,7 +123,9 @@ router.post('/verify', async (req, res) => {
         tenantId: user.tenantId,
         businessName: user.businessName,
         isImpersonating: decoded.isImpersonating || false,
-        superAdminUsername: decoded.superAdminUsername || null
+        superAdminUsername: decoded.superAdminUsername || null,
+        subscriptionStatus,
+        renewalDate
       }
     });
   } catch (err) {
