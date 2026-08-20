@@ -23,20 +23,13 @@ async function run() {
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('✅ Connected to MongoDB.');
 
-  // Find a tenant (admin user)
-  const admin = await User.findOne({});
-  if (!admin) {
-    console.error('❌ No user found in the database. Please run the seed script first.');
-    process.exit(1);
-  }
-  const tenantId = admin._id.toString();
-
   // Find an active loan
   const loan = await Loan.findOne({ status: 'active' }).populate('customerId');
   if (!loan) {
     console.error('❌ No active loan found to simulate a payment for.');
     process.exit(1);
   }
+  const tenantId = loan.tenantId.toString();
 
   const amountToPay = 5000; // Simulated payment amount in Rupees (Rs. 5000)
   const amountPaise = amountToPay * 100; // Razorpay expects paise

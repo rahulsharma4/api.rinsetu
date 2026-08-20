@@ -1,0 +1,26 @@
+=== BYAJ CRM WEBHOOK DIAGNOSTIC REPORT ===
+Date: 2026-08-20T07:16:35.053Z
+
+🔄 Connecting to MongoDB...
+✅ Connected.
+
+--- 1. REGISTERED USERS (TENANTS) ---
+Total users: 2
+- ID: 6a7ee39c5146ddd1f495d1de | Username: rahul | Email: undefined
+- ID: 6a7eed322beb2289bb79f975 | Username: admin12 | Email: undefined
+
+--- 2. ACTIVE LOANS ---
+Total active loans: 1
+- Loan ID: 6a8438b8d57168a002574d39 | Tenant ID: 6a7eed322beb2289bb79f975 | Borrower: Rahul Bhardwaj (ID: 6a8437bdd57168a002574d27)
+
+--- 3. RECENT TRANSACTIONS ---
+Total transactions in database: 1
+1. Tx ID: 6a86a171520c3376aed4b6bc
+   Date: Thu Aug 20 2026 12:10:49 GMT+0530 (India Standard Time)
+   Amount: ₹5000
+   Mode: upi
+   Borrower: Rahul Bhardwaj (ID: 6a8437bdd57168a002574d27)
+   Tenant ID (Owner): 6a7ee39c5146ddd1f495d1de
+   Ref ID (Razorpay ID): pay_MOCKSYTI0BKP
+   Reversed: NO
+   ---
