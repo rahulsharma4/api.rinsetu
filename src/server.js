@@ -98,7 +98,7 @@ app.use('/api/reports', authMiddleware, subscriptionMiddleware, reportRoutes);
 app.use('/api/settings', authMiddleware, subscriptionMiddleware, settingsRoutes);
 app.use('/api/notifications', authMiddleware, subscriptionMiddleware, notificationRoutes);
 app.use('/api/superadmin', authMiddleware, superAdminRoutes);
-app.use('/api/borrower', subscriptionMiddleware, borrowerRoutes);
+app.use('/api/borrower', authMiddleware, subscriptionMiddleware, borrowerRoutes);
 
 // ============================================
 // EXPRESS SERVER PEHLE START KARO
