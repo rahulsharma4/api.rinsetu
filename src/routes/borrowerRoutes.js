@@ -159,7 +159,7 @@ router.post('/generate-qr', async (req, res) => {
         return res.json({
           qrCodeId: 'mock_qr_' + Math.random().toString(36).substring(2, 10).toUpperCase(),
           amount: amount,
-          qrImageUrl: 'simulated_qr_url',
+          qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`upi://pay?pa=rahulsharma@razorpay&pn=RinSetu%20CRM&am=${amount}&cu=INR`)}`,
           keyId: 'mock_key',
           currency: 'INR',
           borrowerName: borrower.name,
@@ -182,7 +182,7 @@ router.post('/generate-qr', async (req, res) => {
         return res.json({
           qrCodeId: 'mock_qr_' + Math.random().toString(36).substring(2, 10).toUpperCase(),
           amount: amount,
-          qrImageUrl: 'simulated_qr_url',
+          qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`upi://pay?pa=rahulsharma@razorpay&pn=RinSetu%20CRM&am=${amount}&cu=INR`)}`,
           keyId: keyId,
           currency: 'INR',
           borrowerName: borrower.name,
