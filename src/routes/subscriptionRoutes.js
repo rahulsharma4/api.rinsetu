@@ -159,8 +159,14 @@ export async function subscriptionWebhookHandler(req, res) {
       return res.status(200).json({ message: 'Non-subscription event ignored.' });
     }
 
-    const tenant = await User.findById(tenantId);
+    const tenant = await User.findById(tenantId).select('+processedSubscriptionOrders');
     if (!tenant) return res.status(404).json({ message: 'Tenant not found.' });
+
+    const orderId = paymentData.order_id || paymentData.id;
+    if (orderId && tenant.processedSubscriptionOrders && tenant.processedSubscriptionOrders.includes(orderId)) {
+      console.log(`⚠️ Subscription Webhook: Order "${orderId}" was already processed. Ignoring duplicate event.`);
+      return res.status(200).json({ message: 'Already processed.' });
+    }
 
     const plan = await Plan.findById(planId);
     if (!plan) return res.status(404).json({ message: 'Plan not found.' });
@@ -173,6 +179,10 @@ export async function subscriptionWebhookHandler(req, res) {
     tenant.renewalDate = new Date(baseDate.getTime() + plan.durationDays * 24 * 60 * 60 * 1000);
     tenant.subscriptionStatus = 'active';
     tenant.subscriptionPlan = plan._id;
+    
+    if (orderId) {
+      tenant.processedSubscriptionOrders.push(orderId);
+    }
     await tenant.save();
 
     console.log(`✅ Subscription renewed successfully: Tenant "${tenant.businessName}" extended to ${tenant.renewalDate.toLocaleDateString()}`);
@@ -208,8 +218,17 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Invalid payment signature verification failed.' });
     }
 
-    const tenant = await User.findById(tenantId);
+    const tenant = await User.findById(tenantId).select('+processedSubscriptionOrders');
     if (!tenant) return res.status(404).json({ message: 'Tenant not found.' });
+
+    if (razorpayOrderId && tenant.processedSubscriptionOrders && tenant.processedSubscriptionOrders.includes(razorpayOrderId)) {
+      console.log(`⚠️ verify-payment: Order "${razorpayOrderId}" was already processed. Ignoring duplicate call.`);
+      return res.json({
+        message: 'Subscription successfully extended! ✅',
+        success: true,
+        renewalDate: tenant.renewalDate,
+      });
+    }
 
     const plan = await Plan.findById(planId);
     if (!plan) return res.status(404).json({ message: 'Plan not found.' });
@@ -222,6 +241,10 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
     tenant.renewalDate = new Date(baseDate.getTime() + plan.durationDays * 24 * 60 * 60 * 1000);
     tenant.subscriptionStatus = 'active';
     tenant.subscriptionPlan = plan._id;
+    
+    if (razorpayOrderId) {
+      tenant.processedSubscriptionOrders.push(razorpayOrderId);
+    }
     await tenant.save();
 
     res.json({

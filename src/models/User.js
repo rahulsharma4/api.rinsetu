@@ -80,6 +80,11 @@ const userSchema = new mongoose.Schema(
     customPrice: {
       type: Number,
     },
+    processedSubscriptionOrders: {
+      type: [String],
+      default: [],
+      select: false,
+    },
   },
   {
     timestamps: true,
