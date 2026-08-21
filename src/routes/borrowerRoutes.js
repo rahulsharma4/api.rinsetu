@@ -136,8 +136,9 @@ router.post('/generate-qr', async (req, res) => {
     return res.status(400).json({ message: 'loanId and amount are required.' });
   }
 
+  let borrower;
   try {
-    const borrower = await Customer.findById(customerId);
+    borrower = await Customer.findById(customerId);
     if (!borrower) {
       return res.status(404).json({ message: 'Borrower profile not found.' });
     }
@@ -162,7 +163,7 @@ router.post('/generate-qr', async (req, res) => {
           qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`upi://pay?pa=rahulsharma@razorpay&pn=RinSetu%20CRM&am=${amount}&cu=INR`)}`,
           keyId: 'mock_key',
           currency: 'INR',
-          borrowerName: borrower.name,
+          borrowerName: borrower?.name || 'Valued Customer',
         });
       }
       return res.status(422).json({
@@ -185,7 +186,7 @@ router.post('/generate-qr', async (req, res) => {
           qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`upi://pay?pa=rahulsharma@razorpay&pn=RinSetu%20CRM&am=${amount}&cu=INR`)}`,
           keyId: keyId,
           currency: 'INR',
-          borrowerName: borrower.name,
+          borrowerName: borrower?.name || 'Valued Customer',
         });
       }
     }
