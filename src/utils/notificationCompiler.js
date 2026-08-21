@@ -84,6 +84,32 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
 
     await notification.save();
     console.log(`✉️ Queued WhatsApp message (${type}) for ${customer.name}.`);
+
+    // Direct background Meta WhatsApp template send if enabled by this admin
+    try {
+      const { sendWhatsAppTemplate } = await import('./whatsappHelper.js');
+      const templateKey = 
+        type === 'upcoming_due' ? 'upcomingDue' :
+        type === 'due_today' ? 'dueToday' :
+        type === 'payment_received' ? 'paymentReceived' :
+        type === 'overdue_warning' ? 'overdueWarning' : type;
+
+      const sentResult = await sendWhatsAppTemplate(
+        loan.tenantId,
+        customer.phone,
+        templateKey,
+        [customer.name, formattedAmount, formattedDate, loan._id.toString().slice(-6), formattedOutstanding]
+      );
+
+      if (sentResult) {
+        notification.status = 'sent';
+        await notification.save();
+        console.log(`✉️ Automated WhatsApp message successfully sent via Meta for ${customer.name}.`);
+      }
+    } catch (wsErr) {
+      console.error('Meta WhatsApp background trigger error:', wsErr.message);
+    }
+
     return notification;
 
   } catch (err) {

@@ -85,6 +85,30 @@ const userSchema = new mongoose.Schema(
       default: [],
       select: false,
     },
+    whatsappAccessToken: {
+      type: String,
+      default: '',
+      select: false,
+    },
+    whatsappPhoneNumberId: {
+      type: String,
+      default: '',
+      select: false,
+    },
+    whatsappEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    whatsappTemplates: {
+      type: Map,
+      of: String,
+      default: {
+        upcomingDue: 'upcoming_due',
+        dueToday: 'due_today',
+        paymentReceived: 'payment_received',
+        overdueWarning: 'overdue_warning'
+      }
+    }
   },
   {
     timestamps: true,

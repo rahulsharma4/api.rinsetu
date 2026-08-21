@@ -338,4 +338,56 @@ router.put('/gateway-settings', async (req, res) => {
   }
 });
 
+// GET /api/auth/whatsapp-settings  (read current whatsapp config for settings panel)
+router.get('/whatsapp-settings', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const user = await User.findById(decoded.id).select('+whatsappAccessToken +whatsappPhoneNumberId +whatsappEnabled +whatsappTemplates');
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    res.json({
+      whatsappAccessToken: user.whatsappAccessToken || '',
+      whatsappPhoneNumberId: user.whatsappPhoneNumberId || '',
+      whatsappEnabled: !!user.whatsappEnabled,
+      whatsappTemplates: user.whatsappTemplates ? Object.fromEntries(user.whatsappTemplates) : {}
+    });
+  } catch (err) {
+    res.status(401).json({ message: 'Token expired or invalid.' });
+  }
+});
+
+// PUT /api/auth/whatsapp-settings  (save/update WhatsApp Meta API settings)
+router.put('/whatsapp-settings', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const { whatsappAccessToken, whatsappPhoneNumberId, whatsappEnabled, whatsappTemplates } = req.body;
+
+    const user = await User.findById(decoded.id).select('+whatsappAccessToken +whatsappPhoneNumberId +whatsappEnabled +whatsappTemplates');
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    if (whatsappAccessToken !== undefined) user.whatsappAccessToken = whatsappAccessToken.trim();
+    if (whatsappPhoneNumberId !== undefined) user.whatsappPhoneNumberId = whatsappPhoneNumberId.trim();
+    if (whatsappEnabled !== undefined) user.whatsappEnabled = !!whatsappEnabled;
+    if (whatsappTemplates !== undefined) {
+      user.whatsappTemplates = whatsappTemplates;
+    }
+
+    await user.save();
+    res.json({ message: 'WhatsApp settings saved successfully!' });
+  } catch (err) {
+    console.error('❌ WhatsApp settings update error:', err);
+    res.status(500).json({ message: 'Failed to save WhatsApp settings.' });
+  }
+});
+
 export default router;
