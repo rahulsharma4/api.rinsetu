@@ -108,6 +108,31 @@ const userSchema = new mongoose.Schema(
         paymentReceived: 'payment_received',
         overdueWarning: 'overdue_warning'
       }
+    },
+    payoutBankAccountNumber: {
+      type: String,
+      default: ''
+    },
+    payoutBankIfsc: {
+      type: String,
+      default: ''
+    },
+    payoutBankBeneficiaryName: {
+      type: String,
+      default: ''
+    },
+    payoutLinkedAccountId: {
+      type: String,
+      default: ''
+    },
+    payoutEnabled: {
+      type: Boolean,
+      default: false
+    },
+    paymentModePreference: {
+      type: String,
+      enum: ['byok', 'central_split'],
+      default: 'byok'
     }
   },
   {

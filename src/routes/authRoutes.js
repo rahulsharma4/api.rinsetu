@@ -390,4 +390,80 @@ router.put('/whatsapp-settings', async (req, res) => {
   }
 });
 
+// GET /api/auth/payout-settings
+router.get('/payout-settings', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const user = await User.findById(decoded.id);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    res.json({
+      payoutBankAccountNumber: user.payoutBankAccountNumber || '',
+      payoutBankIfsc: user.payoutBankIfsc || '',
+      payoutBankBeneficiaryName: user.payoutBankBeneficiaryName || '',
+      payoutLinkedAccountId: user.payoutLinkedAccountId || '',
+      payoutEnabled: !!user.payoutEnabled,
+      paymentModePreference: user.paymentModePreference || 'byok'
+    });
+  } catch (err) {
+    res.status(401).json({ message: 'Token expired or invalid.' });
+  }
+});
+
+// PUT /api/auth/payout-settings
+router.put('/payout-settings', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const { payoutBankAccountNumber, payoutBankIfsc, payoutBankBeneficiaryName, paymentModePreference } = req.body;
+
+    const user = await User.findById(decoded.id);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    if (payoutBankAccountNumber !== undefined) user.payoutBankAccountNumber = payoutBankAccountNumber.trim();
+    if (payoutBankIfsc !== undefined) user.payoutBankIfsc = payoutBankIfsc.trim().toUpperCase();
+    if (payoutBankBeneficiaryName !== undefined) user.payoutBankBeneficiaryName = payoutBankBeneficiaryName.trim();
+    if (paymentModePreference !== undefined) user.paymentModePreference = paymentModePreference;
+
+    // Trigger automatic sub-merchant creation if central_split is chosen, bank details are provided, and no ID exists yet
+    const hasDetails = user.payoutBankAccountNumber && user.payoutBankIfsc && user.payoutBankBeneficiaryName;
+    if (paymentModePreference === 'central_split' && hasDetails && !user.payoutLinkedAccountId) {
+      const { createRazorpayLinkedAccount } = await import('../utils/payoutService.js');
+      const linkedAccountId = await createRazorpayLinkedAccount(user, {
+        accountNumber: user.payoutBankAccountNumber,
+        ifsc: user.payoutBankIfsc,
+        beneficiaryName: user.payoutBankBeneficiaryName
+      });
+
+      if (linkedAccountId) {
+        user.payoutLinkedAccountId = linkedAccountId;
+        user.payoutEnabled = true;
+      } else {
+        user.payoutEnabled = false;
+      }
+    }
+
+    await user.save();
+    res.json({
+      message: user.payoutEnabled
+        ? 'Payout settings saved and active!'
+        : 'Payout settings saved! Linkage is pending activation.',
+      payoutEnabled: user.payoutEnabled,
+      payoutLinkedAccountId: user.payoutLinkedAccountId
+    });
+  } catch (err) {
+    console.error('❌ Payout settings update error:', err);
+    res.status(500).json({ message: 'Failed to save payout settings.' });
+  }
+});
+
 export default router;
