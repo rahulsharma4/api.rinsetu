@@ -49,6 +49,25 @@ router.post('/generate-qr', async (req, res) => {
     const gatewayMessage = err?.error?.description || err?.description || err?.message;
     const isQrUnavailable = /url not found|qr.?code.*(not|unavailable|enabled)|feature/i.test(gatewayMessage || '');
     const isUpiDisabled = /upi transactions are not enabled|upi.*not enabled/i.test(gatewayMessage || '');
+
+    if ((isUpiDisabled || isQrUnavailable) && req.admin.tenantId) {
+      const User = (await import('../models/User.js')).default;
+      const adminUser = await User.findById(req.admin.tenantId).select('+gatewayKeyId');
+      const keyId = adminUser?.gatewayKeyId || process.env.RAZORPAY_KEY_ID || '';
+      
+      if (keyId.startsWith('rzp_test') || process.env.NODE_ENV !== 'production') {
+        console.log('⚠️ UPI is disabled on this Razorpay test account. Returning simulated QR order...');
+        return res.json({
+          qrCodeId: 'mock_qr_' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+          amount: amount,
+          qrImageUrl: 'simulated_qr_url',
+          keyId: keyId,
+          currency: 'INR',
+          borrowerName,
+        });
+      }
+    }
+
     res.status(isQrUnavailable || isUpiDisabled ? 503 : 500).json({
       message: isUpiDisabled
         ? 'UPI payments are not enabled for this Razorpay merchant account. Activate UPI in Razorpay Dashboard or contact Razorpay Support, then try again.'

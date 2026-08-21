@@ -171,6 +171,25 @@ router.post('/generate-qr', async (req, res) => {
       });
     }
     const gatewayMessage = err?.error?.description || err?.description || err?.message;
+    const isQrUnavailable = /url not found|qr.?code.*(not|unavailable|enabled)|feature/i.test(gatewayMessage || '');
+    const isUpiDisabled = /upi transactions are not enabled|upi.*not enabled/i.test(gatewayMessage || '');
+    
+    if (isUpiDisabled || isQrUnavailable) {
+      const User = (await import('../models/User.js')).default;
+      const adminUser = await User.findById(tenantId).select('+gatewayKeyId');
+      const keyId = adminUser?.gatewayKeyId || process.env.RAZORPAY_KEY_ID || '';
+      if (keyId.startsWith('rzp_test') || process.env.NODE_ENV !== 'production') {
+        return res.json({
+          qrCodeId: 'mock_qr_' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+          amount: amount,
+          qrImageUrl: 'simulated_qr_url',
+          keyId: keyId,
+          currency: 'INR',
+          borrowerName: borrower.name,
+        });
+      }
+    }
+
     res.status(500).json({
       message: gatewayMessage || 'Failed to generate payment QR.',
       code: 'QR_GENERATION_FAILED',
