@@ -104,7 +104,7 @@ router.post('/chat', async (req, res) => {
       entries.forEach(entry => {
         if (entry.type === 'opening_balance') {
           openingBalance += entry.amount;
-        } else if (entry.type === 'collection') {
+        } else if (entry.type === 'collection' || entry.type === 'penalty_charge') {
           totalCollected += entry.amount;
         } else if (entry.type === 'disbursement') {
           totalDisbursed += entry.amount;

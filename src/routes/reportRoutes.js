@@ -14,7 +14,7 @@ router.get('/summary', async (req, res) => {
   try {
     const tenantId = req.admin.tenantId;
     const loans = await Loan.find({ tenantId }).populate('customerId');
-    const transactions = await Transaction.find({ tenantId }).sort({ paymentDate: 1 });
+    const transactions = await Transaction.find({ tenantId, isReversed: { $ne: true } }).sort({ paymentDate: 1 });
     const customers = await Customer.find({ tenantId });
     const loanIds = loans.map(l => l._id);
     const installments = await Installment.find({ loanId: { $in: loanIds } });
@@ -146,7 +146,7 @@ router.get('/cashbook', async (req, res) => {
       if (entry.type === 'opening_balance') {
         openingBalance += entry.amount;
       } 
-      else if (entry.type === 'collection') {
+      else if (entry.type === 'collection' || entry.type === 'penalty_charge') {
         if (entry.paymentMode === 'cash') collectionsCash += entry.amount;
         else if (entry.paymentMode === 'online') collectionsUPI += entry.amount;
         else if (entry.paymentMode === 'bank_transfer') collectionsBank += entry.amount;
