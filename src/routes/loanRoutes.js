@@ -156,7 +156,12 @@ router.post('/', async (req, res) => {
     lateFeeRate,
     lateFeeType,
     remarks,
+    isExistingLoan,
+    alreadyPaidInstallments,
+    skipCashBookOutflow,
   } = req.body;
+
+  const numPaidInst = isExistingLoan ? Math.max(0, parseInt(alreadyPaidInstallments || 0)) : 0;
 
   const loan = new Loan({
     customerId,
@@ -174,36 +179,58 @@ router.post('/', async (req, res) => {
     lateFeeRate: lateFeeRate !== undefined ? parseFloat(lateFeeRate) : 50,
     lateFeeType: lateFeeType || 'daily',
     remarks,
+    isExistingLoan: !!isExistingLoan,
+    alreadyPaidInstallments: numPaidInst,
+    skipCashBookOutflow: isExistingLoan ? (skipCashBookOutflow !== false) : false,
     tenantId: req.admin.tenantId,
   });
 
   try {
     const newLoan = await loan.save();
     const schedule = generateRepaymentSchedule(newLoan);
-    const installmentDocs = schedule.map(item => ({
-      loanId: newLoan._id,
-      ...item
-    }));
+    const today = new Date();
+
+    const installmentDocs = schedule.map((item, index) => {
+      const isPaidHistorical = isExistingLoan && (index < numPaidInst);
+      return {
+        loanId: newLoan._id,
+        ...item,
+        amountPaid: isPaidHistorical ? item.totalAmount : 0,
+        principalPaid: isPaidHistorical ? item.principalComponent : 0,
+        interestPaid: isPaidHistorical ? item.interestComponent : 0,
+        status: isPaidHistorical ? 'paid' : (new Date(item.dueDate) < today ? 'overdue' : 'unpaid'),
+        lastPaymentDate: isPaidHistorical ? item.dueDate : null,
+      };
+    });
     await Installment.insertMany(installmentDocs);
 
-    // Write to Cash Book double-entry system (outflow)
-    const CashBook = (await import('../models/CashBook.js')).default;
-    await CashBook.create({
-      paymentDate: newLoan.startDate || new Date(),
-      type: 'disbursement',
-      amount: newLoan.principalAmount,
-      paymentMode: 'cash', // Default to cash disbursement
-      customerId: newLoan.customerId,
-      loanId: newLoan._id,
-      notes: `Auto-recorded loan disbursement for Agreement #${newLoan._id.toString().slice(-6)}`,
-      tenantId: req.admin.tenantId,
-    });
+    // If all installments are already paid, set loan status to 'closed'
+    if (numPaidInst >= schedule.length && schedule.length > 0) {
+      newLoan.status = 'closed';
+      newLoan.closureDate = new Date();
+      await newLoan.save();
+    }
+
+    // Write to Cash Book double-entry system (outflow) unless skipped for existing loans
+    if (!newLoan.skipCashBookOutflow) {
+      const CashBook = (await import('../models/CashBook.js')).default;
+      await CashBook.create({
+        paymentDate: newLoan.startDate || new Date(),
+        type: 'disbursement',
+        amount: newLoan.principalAmount,
+        paymentMode: 'cash', // Default to cash disbursement
+        customerId: newLoan.customerId,
+        loanId: newLoan._id,
+        notes: `Auto-recorded loan disbursement for Agreement #${newLoan._id.toString().slice(-6)}`,
+        tenantId: req.admin.tenantId,
+      });
+    }
 
     // Audit Log
     await logAuditAction(
       req.admin?.username || 'admin',
       'LOAN_CREATED',
-      `Disbursed new loan of ₹${newLoan.principalAmount} for customer ID: ${customerId}`,
+      `Disbursed ${isExistingLoan ? 'existing running' : 'new'} loan of ₹${newLoan.principalAmount} (${numPaidInst} past EMIs pre-paid) for customer ID: ${customerId}`,
       null,
       newLoan.toObject(),
       req

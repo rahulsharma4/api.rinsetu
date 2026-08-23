@@ -106,6 +106,19 @@ const loanSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    isExistingLoan: {
+      type: Boolean,
+      default: false,
+    },
+    alreadyPaidInstallments: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    skipCashBookOutflow: {
+      type: Boolean,
+      default: false,
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
