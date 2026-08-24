@@ -119,6 +119,11 @@ const loanSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    dayCountBasis: {
+      type: String,
+      enum: ['30_360', 'act_365'],
+      default: '30_360',
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

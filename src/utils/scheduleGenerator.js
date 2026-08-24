@@ -2,20 +2,34 @@
  * Helper to calculate periodic interest rate as a decimal fraction.
  * Converts any combination of interest rate types and payment frequencies to a normalized periodic rate.
  */
-export function getPeriodicRate(interestRate, rateType, paymentFrequency) {
-  // Convert interestRate to an annual rate fraction first
-  let annualRateFraction = 0;
-  if (rateType === 'daily') annualRateFraction = (interestRate * 365) / 100;
-  else if (rateType === 'weekly') annualRateFraction = (interestRate * 52) / 100;
-  else if (rateType === 'monthly') annualRateFraction = (interestRate * 12) / 100;
-  else if (rateType === 'yearly') annualRateFraction = interestRate / 100;
-  
-  // Convert annual rate fraction to periodic rate fraction based on paymentFrequency
-  if (paymentFrequency === 'daily') return annualRateFraction / 365;
-  if (paymentFrequency === 'weekly') return annualRateFraction / 52;
-  if (paymentFrequency === 'monthly') return annualRateFraction / 12;
-  if (paymentFrequency === 'yearly') return annualRateFraction;
-  return annualRateFraction / 12;
+export function getPeriodicRate(interestRate, rateType, paymentFrequency, dayCountBasis = '30_360') {
+  if (dayCountBasis === 'act_365') {
+    let annualRateFraction = 0;
+    if (rateType === 'daily') annualRateFraction = (interestRate * 365) / 100;
+    else if (rateType === 'weekly') annualRateFraction = (interestRate * 52) / 100;
+    else if (rateType === 'monthly') annualRateFraction = (interestRate * 12) / 100;
+    else if (rateType === 'yearly') annualRateFraction = interestRate / 100;
+    
+    if (paymentFrequency === 'daily') return annualRateFraction / 365;
+    if (paymentFrequency === 'weekly') return annualRateFraction / 52;
+    if (paymentFrequency === 'monthly') return annualRateFraction / 12;
+    if (paymentFrequency === 'yearly') return annualRateFraction;
+    return annualRateFraction / 12;
+  } else {
+    // Convert rateType to daily rate fraction (assuming 1 Month = 30 Days, 1 Year = 360 Days)
+    let dailyRateFraction = 0;
+    if (rateType === 'daily') dailyRateFraction = interestRate / 100;
+    else if (rateType === 'weekly') dailyRateFraction = (interestRate / 7) / 100;
+    else if (rateType === 'monthly') dailyRateFraction = (interestRate / 30) / 100;
+    else if (rateType === 'yearly') dailyRateFraction = (interestRate / 360) / 100;
+
+    // Scale daily rate fraction to selected paymentFrequency
+    if (paymentFrequency === 'daily') return dailyRateFraction;
+    if (paymentFrequency === 'weekly') return dailyRateFraction * 7;
+    if (paymentFrequency === 'monthly') return dailyRateFraction * 30;
+    if (paymentFrequency === 'yearly') return dailyRateFraction * 360;
+    return dailyRateFraction * 30;
+  }
 }
 
 /**
@@ -49,9 +63,10 @@ export function generateRepaymentSchedule(loan) {
   const interestType = loan.interestType; // 'flat', 'reducing', 'simple'
   const rateType = loan.rateType;
   const paymentFrequency = loan.paymentFrequency;
+  const dayCountBasis = loan.dayCountBasis || '30_360';
 
   const installments = [];
-  const r = getPeriodicRate(R, rateType, paymentFrequency);
+  const r = getPeriodicRate(R, rateType, paymentFrequency, dayCountBasis);
 
   if (interestType === 'flat') {
     // Flat rate: Total interest is calculated on full principal for entire tenure, split equally

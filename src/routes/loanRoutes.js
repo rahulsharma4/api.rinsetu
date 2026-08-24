@@ -159,6 +159,7 @@ router.post('/', async (req, res) => {
     isExistingLoan,
     alreadyPaidInstallments,
     skipCashBookOutflow,
+    dayCountBasis,
   } = req.body;
 
   const numPaidInst = isExistingLoan ? Math.max(0, parseInt(alreadyPaidInstallments || 0)) : 0;
@@ -182,6 +183,7 @@ router.post('/', async (req, res) => {
     isExistingLoan: !!isExistingLoan,
     alreadyPaidInstallments: numPaidInst,
     skipCashBookOutflow: isExistingLoan ? (skipCashBookOutflow !== false) : false,
+    dayCountBasis: dayCountBasis || '30_360',
     tenantId: req.admin.tenantId,
   });
 
