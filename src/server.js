@@ -46,11 +46,21 @@ import { authMiddleware } from './middleware/authMiddleware.js';
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// ============================================
+// Middlewares - Enable robust CORS with preflight support
+app.use(cors({
+  origin: true, // Dynamically allow request origin
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-tenant-id']
+}));
+
+// Handle explicit preflight requests
+app.options('*', cors());
+
 // SECURITY REINFORCEMENTS MIDDLEWARE
-// ============================================
 app.use(helmet({
-  crossOriginResourcePolicy: false // Allows loading uploaded static doc files in frontend
+  crossOriginResourcePolicy: false, // Allows loading uploaded static doc files in frontend
+  crossOriginOpenerPolicy: false
 }));
 app.use(mongoSanitize()); // Prevent NoSQL injection attacks
 
@@ -59,9 +69,6 @@ const authLimiter = rateLimit({
   max: 100, // Max 100 requests per IP per 15 mins
   message: { message: 'Too many authentication attempts from this IP, please try again after 15 minutes.' }
 });
-
-// Middlewares
-app.use(cors());
 
 // Razorpay must receive the untouched request bytes so its HMAC signature can
 // be verified. Register this route before the JSON parser below.
