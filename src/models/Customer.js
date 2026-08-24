@@ -50,7 +50,6 @@ const customerSchema = new mongoose.Schema(
     },
     collateralType: {
       type: String,
-      enum: ['Gold', 'Silver', 'Vehicle', 'Land', 'Documents', 'None'],
       default: 'None',
     },
     collateralDescription: {
