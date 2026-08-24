@@ -54,9 +54,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-tenant-id']
 }));
 
-// Handle explicit preflight requests
-app.options('*', cors());
-
 // SECURITY REINFORCEMENTS MIDDLEWARE
 app.use(helmet({
   crossOriginResourcePolicy: false, // Allows loading uploaded static doc files in frontend
