@@ -35,6 +35,7 @@ import superAdminRoutes from './routes/superAdminRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import subscriptionRoutes, { subscriptionWebhookHandler } from './routes/subscriptionRoutes.js';
 import borrowerRoutes from './routes/borrowerRoutes.js';
+import publicRoutes from './routes/publicRoutes.js';
 import { subscriptionMiddleware } from './middleware/subscriptionMiddleware.js';
 
 import { startCronEngine } from './utils/cronJob.js';
@@ -77,6 +78,7 @@ app.use('/uploads', express.static('./uploads'));
 // PUBLIC ROUTES
 // ============================================
 app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/public', publicRoutes);
 
 // Health check
 app.get('/', (req, res) => {
