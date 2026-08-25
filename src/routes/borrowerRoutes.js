@@ -255,4 +255,48 @@ router.put('/profile', async (req, res) => {
   }
 });
 
+// POST /api/borrower/submit-p2p-reference - Submit custom P2P payment UTR/Ref for verification
+router.post('/submit-p2p-reference', async (req, res) => {
+  const customerId = req.admin.id;
+  const tenantId = req.admin.tenantId;
+  const { loanId, amount, referenceNumber, notes } = req.body;
+
+  if (!loanId || !amount || !referenceNumber) {
+    return res.status(400).json({ message: 'loanId, amount, and referenceNumber are required.' });
+  }
+
+  try {
+    const refNum = referenceNumber.trim();
+    
+    // Check for duplicate UTR submissions
+    const existing = await Transaction.findOne({
+      tenantId,
+      razorpayPaymentId: refNum
+    });
+    if (existing) {
+      return res.status(400).json({ message: 'This Transaction Reference Number (UTR) has already been submitted or recorded.' });
+    }
+
+    const transaction = new Transaction({
+      loanId,
+      customerId,
+      amount: parseFloat(amount),
+      paymentType: 'both',
+      paymentMode: 'upi',
+      paymentDate: new Date(),
+      notes: notes || `P2P UPI Payment submitted by borrower.`,
+      razorpayPaymentId: refNum,
+      status: 'pending',
+      tenantId,
+    });
+
+    await transaction.save();
+
+    res.json({ message: 'Repayment reference submitted successfully! Verification pending approval by administrator. ✅' });
+  } catch (error) {
+    console.error('Error submitting P2P payment reference:', error);
+    res.status(500).json({ message: 'Failed to submit payment reference: ' + error.message });
+  }
+});
+
 export default router;

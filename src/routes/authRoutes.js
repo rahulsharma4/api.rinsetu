@@ -301,6 +301,8 @@ router.get('/gateway-settings', async (req, res) => {
     res.json({
       gatewayKeyId: user.gatewayKeyId || '',
       gatewayWebhookSecret: user.gatewayWebhookSecret || '',
+      upiId: user.upiId || '',
+      upiName: user.upiName || '',
       hasKeySecret: !!(user.gatewayKeySecret && user.gatewayKeySecret.length > 0),
       isConfigured: !!(user.gatewayKeyId && user.gatewayKeyId.length > 0 && user.gatewayKeySecret && user.gatewayKeySecret.length > 0),
       webhookUrl: `${req.protocol}://${req.get('host')}/api/webhooks/razorpay/${decoded.id}`,
@@ -310,7 +312,7 @@ router.get('/gateway-settings', async (req, res) => {
   }
 });
 
-// PUT /api/auth/gateway-settings  (save/update Razorpay credentials)
+// PUT /api/auth/gateway-settings  (save/update Razorpay & P2P UPI credentials)
 router.put('/gateway-settings', async (req, res) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -319,7 +321,7 @@ router.put('/gateway-settings', async (req, res) => {
   try {
     const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
     const decoded = verifyToken(token, secret);
-    const { gatewayKeyId, gatewayKeySecret, gatewayWebhookSecret } = req.body;
+    const { gatewayKeyId, gatewayKeySecret, gatewayWebhookSecret, upiId, upiName } = req.body;
 
     const user = await User.findById(decoded.id).select('+gatewayKeyId +gatewayKeySecret +gatewayWebhookSecret');
     if (!user) return res.status(404).json({ message: 'User not found.' });
@@ -329,6 +331,8 @@ router.put('/gateway-settings', async (req, res) => {
       user.gatewayKeySecret = gatewayKeySecret.trim();
     }
     if (gatewayWebhookSecret !== undefined) user.gatewayWebhookSecret = gatewayWebhookSecret.trim();
+    if (upiId !== undefined) user.upiId = upiId.trim();
+    if (upiName !== undefined) user.upiName = upiName.trim();
 
     await user.save();
     res.json({ message: 'Payment gateway settings saved successfully!' });

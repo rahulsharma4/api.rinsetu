@@ -34,6 +34,24 @@ async function getTenantRazorpayClient(tenantId) {
  */
 export async function generateUPIPaymentOrder(tenantId, meta) {
   const adminUser = await User.findById(tenantId);
+  if (!adminUser) throw new Error('User not found.');
+
+  // ── Direct VPA P2P UPI Payment QR Generation ───────────────────────────
+  if (adminUser.upiId) {
+    const displayName = adminUser.upiName || adminUser.businessName || 'RinSetu Repayment';
+    const upiLink = `upi://pay?pa=${adminUser.upiId}&pn=${encodeURIComponent(displayName)}&am=${meta.amount}&cu=INR`;
+    return {
+      qrCodeId: 'p2p_' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+      amount: meta.amount,
+      qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiLink)}`,
+      imageContent: upiLink,
+      keyId: 'p2p_upi',
+      currency: 'INR',
+      borrowerName: meta.borrowerName,
+      isP2P: true
+    };
+  }
+
   const isCentralSplit = !!(adminUser && adminUser.paymentModePreference === 'central_split' && adminUser.payoutLinkedAccountId && adminUser.payoutEnabled);
 
   const amountPaise = Math.round(parseFloat(meta.amount) * 100); // Razorpay expects paise

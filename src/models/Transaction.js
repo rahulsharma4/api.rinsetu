@@ -79,6 +79,11 @@ const transactionSchema = new mongoose.Schema(
       enum: ['pending', 'captured', 'failed', ''],
       default: '',
     },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected', ''],
+      default: '',
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

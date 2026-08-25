@@ -51,6 +51,15 @@ const userSchema = new mongoose.Schema(
       default: '',
       select: false,
     },
+    // ── Direct VPA P2P UPI Settings ───────────────────────────────────────
+    upiId: {
+      type: String,
+      default: '',
+    },
+    upiName: {
+      type: String,
+      default: '',
+    },
     // ── SaaS Subscription & Billing ──────────────────────────────────────
     subscriptionStatus: {
       type: String,

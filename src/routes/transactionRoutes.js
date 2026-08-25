@@ -237,4 +237,116 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// GET /api/transactions/pending - Fetch all pending P2P payments
+router.get('/pending', async (req, res) => {
+  try {
+    const pending = await Transaction.find({
+      tenantId: req.admin.tenantId,
+      status: 'pending'
+    })
+    .populate('customerId')
+    .populate('loanId')
+    .sort({ createdAt: -1 });
+
+    res.json(pending);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/transactions/pending/:id/approve - Approve pending P2P payment UTR
+router.put('/pending/:id/approve', async (req, res) => {
+  try {
+    const tx = await Transaction.findOne({
+      _id: req.params.id,
+      tenantId: req.admin.tenantId,
+      status: 'pending'
+    });
+
+    if (!tx) {
+      return res.status(404).json({ message: 'Pending transaction reference not found.' });
+    }
+
+    tx.status = '';
+    await tx.save();
+
+    // Re-run waterfall schedule calculations and CashBook logging
+    await rebuildInstallmentPayments(tx.loanId);
+
+    const freshTx = await Transaction.findById(tx._id).populate('customerId');
+
+    // Queue automated payment receipt WhatsApp notification
+    try {
+      const LoanModel = (await import('../models/Loan.js')).default;
+      const InstallmentModel = (await import('../models/Installment.js')).default;
+      const loanDoc = await LoanModel.findById(tx.loanId);
+      const insts = await InstallmentModel.find({ loanId: tx.loanId });
+      let totalInterestAccrued = 0;
+      let totalInterestPaid = 0;
+      let totalPrincipalPaid = 0;
+      insts.forEach(inst => {
+        totalInterestAccrued += inst.interestComponent;
+        totalInterestPaid += inst.interestPaid || 0;
+        totalPrincipalPaid += inst.principalPaid || 0;
+      });
+      const outstanding = Math.max(0, loanDoc.principalAmount - totalPrincipalPaid) + Math.max(0, totalInterestAccrued - totalInterestPaid);
+
+      const { queueNotification } = await import('../utils/notificationCompiler.js');
+      await queueNotification(tx.customerId, tx.loanId, 'payment_received', {
+        amount: tx.amount,
+        outstanding
+      });
+    } catch (err) {
+      console.error('Notification failed to queue:', err);
+    }
+
+    // Audit Log
+    await logAuditAction(
+      req.admin?.username || 'admin',
+      'PAYMENT_P2P_APPROVED',
+      `Approved P2P UPI repayment UTR ref ${tx.razorpayPaymentId} of ₹${tx.amount} for borrower: ${freshTx.customerId?.name || 'Borrower'}`,
+      null,
+      tx.toObject(),
+      req
+    );
+
+    res.json({ message: 'Transaction successfully approved and logged to ledger! ✅', transaction: freshTx });
+  } catch (err) {
+    console.error('Error approving P2P transaction:', err);
+    res.status(500).json({ message: 'Failed to approve transaction: ' + err.message });
+  }
+});
+
+// PUT /api/transactions/pending/:id/reject - Reject pending P2P payment UTR
+router.put('/pending/:id/reject', async (req, res) => {
+  try {
+    const tx = await Transaction.findOne({
+      _id: req.params.id,
+      tenantId: req.admin.tenantId,
+      status: 'pending'
+    }).populate('customerId');
+
+    if (!tx) {
+      return res.status(404).json({ message: 'Pending transaction reference not found.' });
+    }
+
+    tx.status = 'rejected';
+    await tx.save();
+
+    // Audit Log
+    await logAuditAction(
+      req.admin?.username || 'admin',
+      'PAYMENT_P2P_REJECTED',
+      `Rejected P2P UPI UTR ref ${tx.razorpayPaymentId} of ₹${tx.amount} for borrower: ${tx.customerId?.name || 'Borrower'}`,
+      null,
+      tx.toObject(),
+      req
+    );
+
+    res.json({ message: 'Payment reference rejected and declined. ❌' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to reject transaction.' });
+  }
+});
+
 export default router;
