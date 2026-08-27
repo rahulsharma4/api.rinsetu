@@ -112,10 +112,10 @@ const userSchema = new mongoose.Schema(
       type: Map,
       of: String,
       default: {
-        upcomingDue: 'upcoming_due',
-        dueToday: 'due_today',
-        paymentReceived: 'payment_received',
-        overdueWarning: 'overdue_warning'
+        upcomingDue: 'Namaste {{customerName}} ji, aapka installment ₹{{amount}} date {{dueDate}} ko due hone wala hai. Kripya samay par bhugtan karein: {{paymentLink}} - RinSetu',
+        dueToday: 'Namaste {{customerName}} ji, aapka installment ₹{{amount}} aaj due hai. Kripya is link se pay karein: {{paymentLink}} ya Cash se clear karein. Dhanyawad. - RinSetu',
+        paymentReceived: 'Namaste {{customerName}} ji, aapka payment ₹{{amount}} prapt hua. Aapka outstanding balance ab ₹{{outstanding}} hai. - RinSetu',
+        overdueWarning: 'Aadarniya {{customerName}} ji, aapka loan account par ₹{{amount}} abhi tak overdue hai. Penalty se bachne ke liye click karein: {{paymentLink}} - RinSetu'
       }
     },
     payoutBankAccountNumber: {

@@ -29,9 +29,19 @@ export async function applyLateFees() {
       let loanFeeAdded = 0;
 
       for (const inst of overdueInstallments) {
+        const graceDays = loan.gracePeriodDays || 0;
+        const graceExpiryDate = new Date(inst.dueDate);
+        graceExpiryDate.setDate(graceExpiryDate.getDate() + graceDays);
+        graceExpiryDate.setHours(0, 0, 0, 0);
+
+        // If today is before graceExpiryDate, skip charging penalty
+        if (today < graceExpiryDate) {
+          continue;
+        }
+
         // Determine start date for late fee calculation
         const lastApplied = inst.lateFeeLastAppliedDate;
-        const startDate = lastApplied ? new Date(lastApplied) : new Date(inst.dueDate);
+        const startDate = lastApplied ? new Date(lastApplied) : graceExpiryDate;
         startDate.setHours(0, 0, 0, 0);
 
         // Difference in days

@@ -160,6 +160,8 @@ router.post('/', async (req, res) => {
     alreadyPaidInstallments,
     skipCashBookOutflow,
     dayCountBasis,
+    gracePeriodDays,
+    holidayRule,
   } = req.body;
 
   const numPaidInst = isExistingLoan ? Math.max(0, parseInt(alreadyPaidInstallments || 0)) : 0;
@@ -184,6 +186,8 @@ router.post('/', async (req, res) => {
     alreadyPaidInstallments: numPaidInst,
     skipCashBookOutflow: isExistingLoan ? (skipCashBookOutflow !== false) : false,
     dayCountBasis: dayCountBasis || '30_360',
+    gracePeriodDays: gracePeriodDays !== undefined ? parseInt(gracePeriodDays) : 0,
+    holidayRule: holidayRule || 'none',
     tenantId: req.admin.tenantId,
   });
 

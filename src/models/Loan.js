@@ -42,6 +42,16 @@ const loanSchema = new mongoose.Schema(
       enum: ['daily', 'weekly', 'monthly', 'yearly'],
       default: 'monthly',
     },
+    gracePeriodDays: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    holidayRule: {
+      type: String,
+      enum: ['none', 'next_working_day', 'prev_working_day'],
+      default: 'none',
+    },
     startDate: {
       type: Date,
       required: true,

@@ -137,9 +137,11 @@ Aap mujhse expected collections, overdue files, ya cash book balance se jude saw
 
 // 2. Draft WhatsApp Reminder
 router.post('/draft-reminder', async (req, res) => {
-  const { customerId, loanId } = req.body;
+  const { customerId, loanId, installmentId, type } = req.body;
 
   try {
+    const User = (await import('../models/User.js')).default;
+    const adminUser = await User.findById(req.admin.id).select('+whatsappTemplates');
     const customer = await Customer.findOne({ _id: customerId, tenantId: req.admin.tenantId });
     const loan = await Loan.findOne({ _id: loanId, tenantId: req.admin.tenantId });
     
@@ -147,12 +149,60 @@ router.post('/draft-reminder', async (req, res) => {
       return res.status(404).json({ message: 'Customer or Loan not found' });
     }
 
-    // Get overdue installments
+    // Get installment details
+    let inst = null;
+    if (installmentId) {
+      const Installment = (await import('../models/Installment.js')).default;
+      inst = await Installment.findById(installmentId);
+    }
+
+    const amountDue = inst ? Math.round(inst.totalAmount - inst.amountPaid) : 0;
+    const dueDateStr = inst ? new Date(inst.dueDate).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+
+    // Get outstanding calculations
+    const Installment = (await import('../models/Installment.js')).default;
+    const insts = await Installment.find({ loanId });
+    let totalInterestAccrued = 0;
+    let totalInterestPaid = 0;
+    let totalPrincipalPaid = 0;
+    insts.forEach(i => {
+      totalInterestAccrued += i.interestComponent;
+      totalInterestPaid += i.interestPaid || 0;
+      totalPrincipalPaid += i.principalPaid || 0;
+    });
+    const outstanding = Math.max(0, loan.principalAmount - totalPrincipalPaid) + Math.max(0, totalInterestAccrued - totalInterestPaid);
+
+    // Build Payment link
+    const host = req.headers.origin || req.headers.referer || 'https://rin-setu-jk8h-amber.vercel.app';
+    const cleanHost = host.replace(/\/$/, '');
+    const paymentLink = `${cleanHost}/pay/loan/${loanId}?am=${amountDue || Math.round(outstanding)}`;
+
+    // Select custom template
+    let templateKey = 'overdueWarning';
+    if (type === 'today' || type === 'dueToday') templateKey = 'dueToday';
+    else if (type === 'upcoming' || type === 'upcomingDue') templateKey = 'upcomingDue';
+    else if (type === 'paymentReceived') templateKey = 'paymentReceived';
+
+    let customTemplate = adminUser.whatsappTemplates ? adminUser.whatsappTemplates.get(templateKey) : null;
+
+    if (customTemplate) {
+      // Compile template placeholders
+      let compiled = customTemplate
+        .replace(/\{\{customerName\}\}/g, customer.name)
+        .replace(/\{\{amount\}\}/g, (amountDue || Math.round(outstanding)).toLocaleString('en-IN'))
+        .replace(/\{\{dueDate\}\}/g, dueDateStr)
+        .replace(/\{\{outstanding\}\}/g, Math.round(outstanding).toLocaleString('en-IN'))
+        .replace(/\{\{paymentLink\}\}/g, paymentLink);
+
+      return res.json({ message: compiled });
+    }
+
+    // Default Fallbacks
     const overdueInst = await Installment.find({ loanId, status: 'overdue' });
     const overdueAmount = overdueInst.reduce((acc, i) => acc + (i.totalAmount - i.amountPaid), 0);
 
     const apiKey = process.env.GEMINI_API_KEY;
-    const defaultTemplate = `Namaste ${customer.name} ji,\n\nAapka RinSetu account par active loan ka overdue amount *₹${overdueAmount.toLocaleString('en-IN')}* ho chuka hai. Kripya iska bhugtan jald se jald karein taaki penalty charges na lagein.\n\nRegards,\nRinSetu Admin`;
+    const defaultTemplate = `Namaste ${customer.name} ji,\n\nAapka RinSetu account par active loan ka overdue amount *₹${overdueAmount.toLocaleString('en-IN')}* ho chuka hai. Kripya iska bhugtan jald se jald karein taaki penalty charges na lagein: ${paymentLink}\n\nRegards,\nAdmin`;
 
     if (apiKey && overdueAmount > 0) {
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
@@ -160,7 +210,7 @@ router.post('/draft-reminder', async (req, res) => {
 Details:
 - Borrower Name: ${customer.name}
 - Overdue Amount: ₹${overdueAmount}
-- Core request: Pay as soon as possible to avoid status issues.
+- Core request: Pay as soon as possible via this link: ${paymentLink} to avoid penalty status.
 Output only the message text, no other formatting.`;
 
       const response = await axios.post(geminiUrl, {

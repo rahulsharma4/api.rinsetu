@@ -50,6 +50,23 @@ export function getNextDueDate(startDate, paymentFrequency, index) {
 }
 
 /**
+ * Adjusts a due date if it falls on a Sunday based on the holiday adjustment rule.
+ */
+export function adjustDueDateForHoliday(dueDate, holidayRule) {
+  const adjusted = new Date(dueDate);
+  const day = adjusted.getDay(); // 0 = Sunday
+  
+  if (day === 0 && holidayRule && holidayRule !== 'none') {
+    if (holidayRule === 'next_working_day') {
+      adjusted.setDate(adjusted.getDate() + 1); // Move to Monday
+    } else if (holidayRule === 'prev_working_day') {
+      adjusted.setDate(adjusted.getDate() - 1); // Move to Saturday
+    }
+  }
+  return adjusted;
+}
+
+/**
  * Generates an array of installment schedules for a given loan.
  * 
  * @param {Object} loan - The loan details
@@ -64,6 +81,7 @@ export function generateRepaymentSchedule(loan) {
   const rateType = loan.rateType;
   const paymentFrequency = loan.paymentFrequency;
   const dayCountBasis = loan.dayCountBasis || '30_360';
+  const holidayRule = loan.holidayRule || 'none';
 
   const installments = [];
   const r = getPeriodicRate(R, rateType, paymentFrequency, dayCountBasis);
@@ -84,7 +102,7 @@ export function generateRepaymentSchedule(loan) {
       
       installments.push({
         installmentNumber: i,
-        dueDate: getNextDueDate(startDate, paymentFrequency, i),
+        dueDate: adjustDueDateForHoliday(getNextDueDate(startDate, paymentFrequency, i), holidayRule),
         principalComponent: Math.round(pComp * 100) / 100,
         interestComponent: Math.round(iComp * 100) / 100,
         totalAmount: Math.round((pComp + iComp) * 100) / 100,
@@ -119,7 +137,7 @@ export function generateRepaymentSchedule(loan) {
 
       installments.push({
         installmentNumber: i,
-        dueDate: getNextDueDate(startDate, paymentFrequency, i),
+        dueDate: adjustDueDateForHoliday(getNextDueDate(startDate, paymentFrequency, i), holidayRule),
         principalComponent: Math.round(pComp * 100) / 100,
         interestComponent: Math.round(iComp * 100) / 100,
         totalAmount: Math.round((pComp + iComp) * 100) / 100,
@@ -141,7 +159,7 @@ export function generateRepaymentSchedule(loan) {
 
       installments.push({
         installmentNumber: i,
-        dueDate: getNextDueDate(startDate, paymentFrequency, i),
+        dueDate: adjustDueDateForHoliday(getNextDueDate(startDate, paymentFrequency, i), holidayRule),
         principalComponent: Math.round(pComp * 100) / 100,
         interestComponent: Math.round(iComp * 100) / 100,
         totalAmount: Math.round((pComp + iComp) * 100) / 100,

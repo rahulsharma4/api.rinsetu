@@ -257,14 +257,20 @@ router.get('/pending', async (req, res) => {
 // PUT /api/transactions/pending/:id/approve - Approve pending P2P payment UTR
 router.put('/pending/:id/approve', async (req, res) => {
   try {
-    const tx = await Transaction.findOne({
-      _id: req.params.id,
-      tenantId: req.admin.tenantId,
-      status: 'pending'
-    });
+    const tx = await Transaction.findById(req.params.id);
 
     if (!tx) {
-      return res.status(404).json({ message: 'Pending transaction reference not found.' });
+      return res.status(404).json({ message: 'Pending transaction reference not found (ID invalid).' });
+    }
+
+    if (tx.tenantId.toString() !== req.admin.tenantId.toString()) {
+      return res.status(403).json({
+        message: `Tenant mismatch error. Transaction tenant: ${tx.tenantId}, logged-in tenant: ${req.admin.tenantId}`
+      });
+    }
+
+    if (tx.status !== 'pending') {
+      return res.status(400).json({ message: `Transaction status is not pending. Current status: ${tx.status}` });
     }
 
     tx.status = '';
@@ -320,14 +326,20 @@ router.put('/pending/:id/approve', async (req, res) => {
 // PUT /api/transactions/pending/:id/reject - Reject pending P2P payment UTR
 router.put('/pending/:id/reject', async (req, res) => {
   try {
-    const tx = await Transaction.findOne({
-      _id: req.params.id,
-      tenantId: req.admin.tenantId,
-      status: 'pending'
-    }).populate('customerId');
+    const tx = await Transaction.findById(req.params.id).populate('customerId');
 
     if (!tx) {
-      return res.status(404).json({ message: 'Pending transaction reference not found.' });
+      return res.status(404).json({ message: 'Pending transaction reference not found (ID invalid).' });
+    }
+
+    if (tx.tenantId.toString() !== req.admin.tenantId.toString()) {
+      return res.status(403).json({
+        message: `Tenant mismatch error. Transaction tenant: ${tx.tenantId}, logged-in tenant: ${req.admin.tenantId}`
+      });
+    }
+
+    if (tx.status !== 'pending') {
+      return res.status(400).json({ message: `Transaction status is not pending. Current status: ${tx.status}` });
     }
 
     tx.status = 'rejected';

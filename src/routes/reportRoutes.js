@@ -229,4 +229,64 @@ router.delete('/cashbook/:id', async (req, res) => {
   }
 });
 
+// GET /api/reports/predictions/borrower/:customerId - Smart collection risk prediction
+router.get('/predictions/borrower/:customerId', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const tenantId = req.admin.tenantId;
+
+    const loans = await Loan.find({ customerId, tenantId });
+    const loanIds = loans.map(l => l._id);
+
+    const installments = await Installment.find({ 
+      loanId: { $in: loanIds },
+      status: 'paid',
+      lastPaymentDate: { $exists: true, $ne: null }
+    });
+
+    let totalLag = 0;
+    let onTimeCount = 0;
+    const totalPaid = installments.length;
+
+    installments.forEach(inst => {
+      const payDate = new Date(inst.lastPaymentDate);
+      const dueDate = new Date(inst.dueDate);
+      
+      const diffTime = payDate.getTime() - dueDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays <= 0) {
+        onTimeCount++;
+      } else {
+        totalLag += diffDays;
+      }
+    });
+
+    const averageLagDays = totalPaid > 0 ? (totalLag / totalPaid) : 0;
+    const onTimePercentage = totalPaid > 0 ? Math.round((onTimeCount / totalPaid) * 100) : 100;
+
+    let riskLevel = 'low';
+    let forecastMessage = 'Highly reliable borrower. Repayments are received on time.';
+
+    if (averageLagDays > 5) {
+      riskLevel = 'high';
+      forecastMessage = `High delay risk! Borrower pays with an average lag of ${Math.round(averageLagDays)} days. Expect late collection.`;
+    } else if (averageLagDays > 1) {
+      riskLevel = 'medium';
+      forecastMessage = `Moderate delay risk. Repayments are usually delayed by ${Math.round(averageLagDays)} days.`;
+    }
+
+    res.json({
+      customerId,
+      averageLagDays: Math.round(averageLagDays * 10) / 10,
+      onTimePercentage,
+      totalPaidInstallments: totalPaid,
+      riskLevel,
+      forecastMessage
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 export default router;
