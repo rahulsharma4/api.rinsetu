@@ -94,6 +94,11 @@ const userSchema = new mongoose.Schema(
       default: [],
       select: false,
     },
+    whatsappMode: {
+      type: String,
+      enum: ['manual', 'automated_qr', 'cloud'],
+      default: 'manual',
+    },
     whatsappAccessToken: {
       type: String,
       default: '',

@@ -37,13 +37,36 @@ router.get('/pay-details/:loanId', async (req, res) => {
       });
     }
 
+    // Calculate live dues
+    const Installment = (await import('../models/Installment.js')).default;
+    const installments = await Installment.find({ loanId: loan._id });
+    
+    let totalOutstanding = 0;
+    let nextDueAmount = 0;
+    let nextDueDate = null;
+
+    const unpaid = installments.filter(inst => inst.status !== 'paid');
+    unpaid.sort((a, b) => a.installmentNumber - b.installmentNumber);
+
+    unpaid.forEach(inst => {
+      totalOutstanding += (inst.totalAmount - inst.amountPaid);
+    });
+
+    if (unpaid.length > 0) {
+      nextDueAmount = unpaid[0].totalAmount - unpaid[0].amountPaid;
+      nextDueDate = unpaid[0].dueDate;
+    }
+
     res.json({
       borrowerName: obfuscateName(loan.customerId?.name || 'Borrower'),
       lenderBusinessName: lender.businessName || 'RinSetu Lender',
       loanNumber: loan.loanNumber || 'Active File',
       upiId: lender.upiId,
       upiName: lender.upiName || lender.businessName || 'RinSetu Repayment',
-      loanId: loan._id
+      loanId: loan._id,
+      totalOutstanding: Math.round(totalOutstanding * 100) / 100,
+      nextDueAmount: Math.round(nextDueAmount * 100) / 100,
+      nextDueDate: nextDueDate ? nextDueDate.toISOString() : null
     });
   } catch (err) {
     console.error('Error fetching public payment details:', err);

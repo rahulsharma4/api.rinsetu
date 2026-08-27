@@ -351,13 +351,14 @@ router.get('/whatsapp-settings', async (req, res) => {
   try {
     const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
     const decoded = verifyToken(token, secret);
-    const user = await User.findById(decoded.id).select('+whatsappAccessToken +whatsappPhoneNumberId +whatsappEnabled +whatsappTemplates');
+    const user = await User.findById(decoded.id).select('+whatsappAccessToken +whatsappPhoneNumberId +whatsappEnabled +whatsappTemplates +whatsappMode');
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     res.json({
       whatsappAccessToken: user.whatsappAccessToken || '',
       whatsappPhoneNumberId: user.whatsappPhoneNumberId || '',
       whatsappEnabled: !!user.whatsappEnabled,
+      whatsappMode: user.whatsappMode || 'manual',
       whatsappTemplates: user.whatsappTemplates ? Object.fromEntries(user.whatsappTemplates) : {}
     });
   } catch (err) {
@@ -374,14 +375,15 @@ router.put('/whatsapp-settings', async (req, res) => {
   try {
     const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
     const decoded = verifyToken(token, secret);
-    const { whatsappAccessToken, whatsappPhoneNumberId, whatsappEnabled, whatsappTemplates } = req.body;
+    const { whatsappAccessToken, whatsappPhoneNumberId, whatsappEnabled, whatsappTemplates, whatsappMode } = req.body;
 
-    const user = await User.findById(decoded.id).select('+whatsappAccessToken +whatsappPhoneNumberId +whatsappEnabled +whatsappTemplates');
+    const user = await User.findById(decoded.id).select('+whatsappAccessToken +whatsappPhoneNumberId +whatsappEnabled +whatsappTemplates +whatsappMode');
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     if (whatsappAccessToken !== undefined) user.whatsappAccessToken = whatsappAccessToken.trim();
     if (whatsappPhoneNumberId !== undefined) user.whatsappPhoneNumberId = whatsappPhoneNumberId.trim();
     if (whatsappEnabled !== undefined) user.whatsappEnabled = !!whatsappEnabled;
+    if (whatsappMode !== undefined) user.whatsappMode = whatsappMode;
     if (whatsappTemplates !== undefined) {
       user.whatsappTemplates = whatsappTemplates;
     }

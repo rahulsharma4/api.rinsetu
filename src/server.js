@@ -37,6 +37,8 @@ import subscriptionRoutes, { subscriptionWebhookHandler } from './routes/subscri
 import borrowerRoutes from './routes/borrowerRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
 import collateralRoutes from './routes/collateralRoutes.js';
+import whatsappRoutes from './routes/whatsappRoutes.js';
+import { initWhatsApp } from './utils/whatsappService.js';
 import { subscriptionMiddleware } from './middleware/subscriptionMiddleware.js';
 
 import { startCronEngine } from './utils/cronJob.js';
@@ -101,6 +103,7 @@ app.use('/api/notifications', authMiddleware, subscriptionMiddleware, notificati
 app.use('/api/superadmin', authMiddleware, superAdminRoutes);
 app.use('/api/borrower', authMiddleware, subscriptionMiddleware, borrowerRoutes);
 app.use('/api/collateral', authMiddleware, subscriptionMiddleware, collateralRoutes);
+app.use('/api/whatsapp', authMiddleware, subscriptionMiddleware, whatsappRoutes);
 
 // ============================================
 // EXPRESS SERVER PEHLE START KARO
@@ -111,6 +114,7 @@ app.listen(PORT, () => {
   console.log(`⏳ Connecting to MongoDB Atlas...`);
 
   connectDatabase();
+  initWhatsApp();
 });
 
 // ============================================
