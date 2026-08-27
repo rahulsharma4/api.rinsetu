@@ -155,6 +155,36 @@ export async function allocatePaymentWaterfall(loanId, amount, paymentType = 'bo
 
   await loan.save();
 
+  // Simple Interest Dynamic Recalculation (केवल ब्याज - घटते मूलधन पर)
+  if (loan.interestType === 'simple' && allocatedPrincipal > 0) {
+    const { getPeriodicRate } = await import('./scheduleGenerator.js');
+    const r = getPeriodicRate(loan.interestRate, loan.rateType, loan.paymentFrequency, loan.dayCountBasis);
+    
+    const allInsts = await Installment.find({ loanId }).sort({ installmentNumber: 1 });
+    let totalPPaid = 0;
+    allInsts.forEach(inst => {
+      totalPPaid += inst.principalPaid;
+    });
+    
+    const remainingPrincipal = Math.max(0, loan.principalAmount - totalPPaid);
+    
+    for (const inst of allInsts) {
+      if (inst.status !== 'paid') {
+        const newInterest = Math.round((remainingPrincipal * r) * 100) / 100;
+        inst.interestComponent = newInterest;
+        
+        // If it is the last installment, update its principal component to match the remaining principal
+        if (inst.installmentNumber === allInsts.length) {
+          inst.principalComponent = Math.round(remainingPrincipal * 100) / 100;
+        }
+        
+        inst.totalAmount = Math.round((inst.principalComponent + inst.interestComponent) * 100) / 100;
+        updateInstallmentStatus(inst);
+        await inst.save();
+      }
+    }
+  }
+
   // 4. Update transaction allocation details in DB
   if (transactionId) {
     await Transaction.findByIdAndUpdate(transactionId, {

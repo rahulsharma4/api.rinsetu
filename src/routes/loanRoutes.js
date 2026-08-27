@@ -162,6 +162,10 @@ router.post('/', async (req, res) => {
     dayCountBasis,
     gracePeriodDays,
     holidayRule,
+    upfrontDeduction,
+    deductionType,
+    deductionAmount,
+    doubleCollectionOnMonday,
   } = req.body;
 
   const numPaidInst = isExistingLoan ? Math.max(0, parseInt(alreadyPaidInstallments || 0)) : 0;
@@ -188,6 +192,10 @@ router.post('/', async (req, res) => {
     dayCountBasis: dayCountBasis || '30_360',
     gracePeriodDays: gracePeriodDays !== undefined ? parseInt(gracePeriodDays) : 0,
     holidayRule: holidayRule || 'none',
+    upfrontDeduction: !!upfrontDeduction,
+    deductionType: deductionType || 'flat',
+    deductionAmount: deductionAmount ? parseFloat(deductionAmount) : 0,
+    doubleCollectionOnMonday: !!doubleCollectionOnMonday,
     tenantId: req.admin.tenantId,
   });
 
@@ -220,14 +228,28 @@ router.post('/', async (req, res) => {
     // Write to Cash Book double-entry system (outflow) unless skipped for existing loans
     if (!newLoan.skipCashBookOutflow) {
       const CashBook = (await import('../models/CashBook.js')).default;
+      let disbursementAmount = newLoan.principalAmount;
+      let note = `Auto-recorded loan disbursement for Agreement #${newLoan._id.toString().slice(-6)}`;
+
+      if (newLoan.upfrontDeduction) {
+        let deduction = 0;
+        if (newLoan.deductionType === 'percent') {
+          deduction = Math.round((newLoan.principalAmount * (newLoan.deductionAmount / 100)) * 100) / 100;
+        } else {
+          deduction = newLoan.deductionAmount;
+        }
+        disbursementAmount = Math.max(0, newLoan.principalAmount - deduction);
+        note += ` (Upfront deduction of ₹${deduction.toLocaleString('en-IN')} applied)`;
+      }
+
       await CashBook.create({
         paymentDate: newLoan.startDate || new Date(),
         type: 'disbursement',
-        amount: newLoan.principalAmount,
+        amount: disbursementAmount,
         paymentMode: 'cash', // Default to cash disbursement
         customerId: newLoan.customerId,
         loanId: newLoan._id,
-        notes: `Auto-recorded loan disbursement for Agreement #${newLoan._id.toString().slice(-6)}`,
+        notes: note,
         tenantId: req.admin.tenantId,
       });
     }

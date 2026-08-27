@@ -52,6 +52,24 @@ const loanSchema = new mongoose.Schema(
       enum: ['none', 'next_working_day', 'prev_working_day'],
       default: 'none',
     },
+    upfrontDeduction: {
+      type: Boolean,
+      default: false,
+    },
+    deductionType: {
+      type: String,
+      enum: ['flat', 'percent'],
+      default: 'flat',
+    },
+    deductionAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    doubleCollectionOnMonday: {
+      type: Boolean,
+      default: false,
+    },
     startDate: {
       type: Date,
       required: true,

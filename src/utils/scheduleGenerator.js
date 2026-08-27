@@ -169,5 +169,47 @@ export function generateRepaymentSchedule(loan) {
     }
   }
 
+  if (loan.doubleCollectionOnMonday) {
+    const adjustedList = [];
+    let pendingMerge = null;
+
+    for (const inst of installments) {
+      const date = new Date(inst.dueDate);
+      const isSunday = date.getDay() === 0;
+
+      if (isSunday) {
+        if (pendingMerge) {
+          pendingMerge.principalComponent += inst.principalComponent;
+          pendingMerge.interestComponent += inst.interestComponent;
+          pendingMerge.totalAmount += inst.totalAmount;
+        } else {
+          pendingMerge = inst;
+        }
+      } else {
+        if (pendingMerge) {
+          inst.principalComponent += pendingMerge.principalComponent;
+          inst.interestComponent += pendingMerge.interestComponent;
+          inst.totalAmount += pendingMerge.totalAmount;
+          pendingMerge = null;
+        }
+        adjustedList.push(inst);
+      }
+    }
+
+    if (pendingMerge) {
+      pendingMerge.dueDate.setDate(pendingMerge.dueDate.getDate() + 1); // Move to Monday
+      adjustedList.push(pendingMerge);
+    }
+
+    adjustedList.forEach((inst, idx) => {
+      inst.installmentNumber = idx + 1;
+      inst.principalComponent = Math.round(inst.principalComponent * 100) / 100;
+      inst.interestComponent = Math.round(inst.interestComponent * 100) / 100;
+      inst.totalAmount = Math.round(inst.totalAmount * 100) / 100;
+    });
+
+    return adjustedList;
+  }
+
   return installments;
 }
