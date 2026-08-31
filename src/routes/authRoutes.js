@@ -472,4 +472,114 @@ router.put('/payout-settings', async (req, res) => {
   }
 });
 
+// GET /api/auth/staff - List all staff users for the admin's tenant
+router.get('/staff', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const adminUser = await User.findById(decoded.id);
+    if (!adminUser || adminUser.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied. Admins only.' });
+    }
+
+    const staffList = await User.find({
+      tenantId: adminUser.tenantId,
+      role: { $in: ['manager', 'collector'] }
+    }).select('-password');
+
+    res.json(staffList);
+  } catch (err) {
+    res.status(401).json({ message: 'Token expired or invalid.' });
+  }
+});
+
+// POST /api/auth/staff - Onboard new manager/collector staff
+router.post('/staff', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const adminUser = await User.findById(decoded.id);
+    if (!adminUser || adminUser.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied. Admins only.' });
+    }
+
+    const { username, password, name, role } = req.body;
+    if (!username || !password || !name || !role) {
+      return res.status(400).json({ message: 'Sabhi fields (username, password, name, role) zaroori hain.' });
+    }
+
+    if (!['manager', 'collector'].includes(role)) {
+      return res.status(400).json({ message: 'Role must be manager or collector.' });
+    }
+
+    const exists = await User.findOne({ username: username.trim().toLowerCase() });
+    if (exists) {
+      return res.status(400).json({ message: 'Username pehle se hi taken hai.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const newStaff = new User({
+      username: username.trim().toLowerCase(),
+      password: hashedPassword,
+      name: name.trim(),
+      role,
+      tenantId: adminUser.tenantId
+    });
+
+    await newStaff.save();
+    res.status(201).json({
+      message: 'Staff user created successfully!',
+      staff: {
+        _id: newStaff._id,
+        username: newStaff.username,
+        name: newStaff.name,
+        role: newStaff.role
+      }
+    });
+  } catch (err) {
+    res.status(401).json({ message: 'Token expired or invalid.' });
+  }
+});
+
+// DELETE /api/auth/staff/:id - Delete a staff user
+router.delete('/staff/:id', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token zaroori hai.' });
+
+  try {
+    const secret = process.env.JWT_SECRET || 'byaj_fallback_secret';
+    const decoded = verifyToken(token, secret);
+    const adminUser = await User.findById(decoded.id);
+    if (!adminUser || adminUser.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied. Admins only.' });
+    }
+
+    const staffUser = await User.findOne({
+      _id: req.params.id,
+      tenantId: adminUser.tenantId,
+      role: { $in: ['manager', 'collector'] }
+    });
+
+    if (!staffUser) {
+      return res.status(404).json({ message: 'Staff user not found.' });
+    }
+
+    await User.deleteOne({ _id: staffUser._id });
+    res.json({ message: 'Staff user deleted successfully.' });
+  } catch (err) {
+    res.status(401).json({ message: 'Token expired or invalid.' });
+  }
+});
+
 export default router;
