@@ -103,9 +103,9 @@ export function generateRepaymentSchedule(loan) {
       installments.push({
         installmentNumber: i,
         dueDate: adjustDueDateForHoliday(getNextDueDate(startDate, paymentFrequency, i), holidayRule),
-        principalComponent: Math.round(pComp * 100) / 100,
-        interestComponent: Math.round(iComp * 100) / 100,
-        totalAmount: Math.round((pComp + iComp) * 100) / 100,
+        principalComponent: Math.max(0, Math.round(pComp * 100) / 100),
+        interestComponent: Math.max(0, Math.round(iComp * 100) / 100),
+        totalAmount: Math.max(0, Math.round((pComp + iComp) * 100) / 100),
         amountPaid: 0,
         status: 'unpaid'
       });
@@ -138,9 +138,9 @@ export function generateRepaymentSchedule(loan) {
       installments.push({
         installmentNumber: i,
         dueDate: adjustDueDateForHoliday(getNextDueDate(startDate, paymentFrequency, i), holidayRule),
-        principalComponent: Math.round(pComp * 100) / 100,
-        interestComponent: Math.round(iComp * 100) / 100,
-        totalAmount: Math.round((pComp + iComp) * 100) / 100,
+        principalComponent: Math.max(0, Math.round(pComp * 100) / 100),
+        interestComponent: Math.max(0, Math.round(iComp * 100) / 100),
+        totalAmount: Math.max(0, Math.round((pComp + iComp) * 100) / 100),
         amountPaid: 0,
         status: 'unpaid'
       });
@@ -160,9 +160,9 @@ export function generateRepaymentSchedule(loan) {
       installments.push({
         installmentNumber: i,
         dueDate: adjustDueDateForHoliday(getNextDueDate(startDate, paymentFrequency, i), holidayRule),
-        principalComponent: Math.round(pComp * 100) / 100,
-        interestComponent: Math.round(iComp * 100) / 100,
-        totalAmount: Math.round((pComp + iComp) * 100) / 100,
+        principalComponent: Math.max(0, Math.round(pComp * 100) / 100),
+        interestComponent: Math.max(0, Math.round(iComp * 100) / 100),
+        totalAmount: Math.max(0, Math.round((pComp + iComp) * 100) / 100),
         amountPaid: 0,
         status: 'unpaid'
       });
