@@ -144,6 +144,7 @@ router.post('/', async (req, res) => {
     customerId,
     principalAmount,
     processingFee,
+    processingFeeMode,
     interestRate,
     rateType,
     interestType,
@@ -175,6 +176,7 @@ router.post('/', async (req, res) => {
     customerId,
     principalAmount: parseFloat(principalAmount),
     processingFee: processingFee ? parseFloat(processingFee) : 0,
+    processingFeeMode: processingFeeMode || 'deduct',
     interestRate: parseFloat(interestRate),
     rateType,
     interestType,
@@ -233,6 +235,10 @@ router.post('/', async (req, res) => {
       let disbursementAmount = newLoan.principalAmount;
       let note = `Auto-recorded loan disbursement for Agreement #${newLoan._id.toString().slice(-6)}`;
 
+      if (newLoan.processingFeeMode === 'deduct' && newLoan.processingFee > 0) {
+        note += ` (Upfront processing fee of ₹${newLoan.processingFee} deducted)`;
+      }
+
       if (newLoan.upfrontDeduction) {
         let deduction = 0;
         if (newLoan.deductionType === 'percent') {
@@ -254,6 +260,20 @@ router.post('/', async (req, res) => {
         notes: note,
         tenantId: req.admin.tenantId,
       });
+
+      if (newLoan.processingFee && newLoan.processingFee > 0) {
+        const feeModeText = newLoan.processingFeeMode === 'deduct' ? 'deducted upfront' : 'collected separately';
+        await CashBook.create({
+          paymentDate: newLoan.startDate || new Date(),
+          type: 'collection',
+          amount: newLoan.processingFee,
+          paymentMode: 'cash',
+          customerId: newLoan.customerId,
+          loanId: newLoan._id,
+          notes: `Processing fee (${feeModeText}) for Loan File #${newLoan._id.toString().slice(-6)}`,
+          tenantId: req.admin.tenantId,
+        });
+      }
     }
 
     // Audit Log

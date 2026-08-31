@@ -2,6 +2,7 @@ import express from 'express';
 import Loan from '../models/Loan.js';
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
+import { generateUPIPaymentOrder } from '../utils/paymentGatewayHelper.js';
 
 const router = express.Router();
 
@@ -29,11 +30,20 @@ router.get('/pay-details/:loanId', async (req, res) => {
       return res.status(404).json({ message: 'Lender profile details missing.' });
     }
 
-    // Verify if lender has direct VPA set up
-    if (!lender.upiId) {
+    const paymentPreference = loan.paymentPreference || 'p2p_upi';
+    const isCentralSplit = lender.paymentModePreference === 'central_split' && !!lender.payoutLinkedAccountId && lender.payoutEnabled;
+
+    if (paymentPreference === 'p2p_upi' && !lender.upiId) {
       return res.status(422).json({
         message: 'Direct P2P UPI payments are not configured by the lender yet.',
         code: 'UPI_NOT_CONFIGURED'
+      });
+    }
+
+    if (paymentPreference === 'central_split' && !isCentralSplit) {
+      return res.status(422).json({
+        message: 'Central Split Auto-Verify payments are not active or configured by the lender yet.',
+        code: 'CENTRAL_SPLIT_NOT_CONFIGURED'
       });
     }
 
@@ -61,9 +71,11 @@ router.get('/pay-details/:loanId', async (req, res) => {
       borrowerName: obfuscateName(loan.customerId?.name || 'Borrower'),
       lenderBusinessName: lender.businessName || 'RinSetu Lender',
       loanNumber: loan.loanNumber || 'Active File',
-      upiId: lender.upiId,
+      upiId: lender.upiId || '',
       upiName: lender.upiName || lender.businessName || 'RinSetu Repayment',
       loanId: loan._id,
+      paymentPreference,
+      isCentralSplit,
       totalOutstanding: Math.round(totalOutstanding * 100) / 100,
       nextDueAmount: Math.round(nextDueAmount * 100) / 100,
       nextDueDate: nextDueDate ? nextDueDate.toISOString() : null
@@ -120,6 +132,59 @@ router.post('/submit-p2p-reference', async (req, res) => {
   } catch (error) {
     console.error('Error submitting public P2P reference:', error);
     res.status(500).json({ message: 'Failed to submit payment reference: ' + error.message });
+  }
+});
+
+// POST /api/public/generate-checkout - Generate online checkout session for borrower
+router.post('/generate-checkout', async (req, res) => {
+  const { loanId, amount } = req.body;
+  if (!loanId || !amount) {
+    return res.status(400).json({ message: 'loanId and amount are required.' });
+  }
+
+  try {
+    const loan = await Loan.findById(loanId).populate('customerId').populate('tenantId');
+    if (!loan) {
+      return res.status(404).json({ message: 'Lending agreement file not found.' });
+    }
+
+    const lender = loan.tenantId;
+    const borrower = loan.customerId;
+
+    const result = await generateUPIPaymentOrder(lender._id, {
+      loanId: loan._id,
+      customerId: borrower._id,
+      borrowerName: borrower.name,
+      amount: parseFloat(amount),
+      paymentType: 'both',
+      notes: `Public repayment checkout generated for Loan File #${loan._id.toString().slice(-6)}`,
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error generating public payment checkout:', err);
+    res.status(500).json({ message: 'Failed to generate online payment checkout: ' + err.message });
+  }
+});
+
+// GET /api/public/check-status/:orderId - Check dynamic QR/Payment link payment status publicly
+router.get('/check-status/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  try {
+    const recorded = await Transaction.findOne({
+      $or: [
+        { razorpayOrderId: orderId }, 
+        { razorpayQrCodeId: orderId },
+        { razorpayPaymentId: orderId }
+      ],
+    });
+
+    if (recorded) {
+      return res.json({ status: 'captured', transaction: recorded });
+    }
+    return res.json({ status: 'pending' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to verify transaction status.' });
   }
 });
 

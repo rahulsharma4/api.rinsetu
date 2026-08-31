@@ -17,6 +17,11 @@ const loanSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    processingFeeMode: {
+      type: String,
+      enum: ['deduct', 'collect'],
+      default: 'deduct',
+    },
     interestRate: {
       type: Number,
       required: true,
