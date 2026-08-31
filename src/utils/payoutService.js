@@ -17,6 +17,12 @@ export async function createRazorpayLinkedAccount(adminUser, bankDetails) {
     return null;
   }
 
+  // Test mode bypass
+  if (masterKeyId.startsWith('rzp_test')) {
+    console.log('🧪 Razorpay Test Keys detected. Bypassing account creation API and generating mock linked account ID...');
+    return `acc_test_${Math.random().toString(36).substring(2, 10)}`;
+  }
+
   try {
     const rzp = new Razorpay({ key_id: masterKeyId, key_secret: masterKeySecret });
 
