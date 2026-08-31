@@ -1,5 +1,6 @@
 import Razorpay from 'razorpay';
 import User from '../models/User.js';
+import Loan from '../models/Loan.js';
 
 /**
  * Fetches the Razorpay credentials for a given tenantId from the database.
@@ -36,8 +37,17 @@ export async function generateUPIPaymentOrder(tenantId, meta) {
   const adminUser = await User.findById(tenantId);
   if (!adminUser) throw new Error('User not found.');
 
+  // Fetch the specific loan to determine its individual payment preference
+  let paymentPreference = adminUser.paymentModePreference || 'byok';
+  if (meta.loanId) {
+    const loan = await Loan.findById(meta.loanId);
+    if (loan && loan.paymentPreference) {
+      paymentPreference = loan.paymentPreference;
+    }
+  }
+
   // ── Direct VPA P2P UPI Payment QR Generation ───────────────────────────
-  if (adminUser.upiId) {
+  if ((paymentPreference === 'p2p_upi' || paymentPreference === 'byok') && adminUser.upiId) {
     const displayName = adminUser.upiName || adminUser.businessName || 'RinSetu Repayment';
     const upiLink = `upi://pay?pa=${adminUser.upiId}&pn=${encodeURIComponent(displayName)}&am=${meta.amount}&cu=INR`;
     return {

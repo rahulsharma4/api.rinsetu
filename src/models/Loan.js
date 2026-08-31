@@ -152,6 +152,11 @@ const loanSchema = new mongoose.Schema(
       enum: ['30_360', 'act_365'],
       default: '30_360',
     },
+    paymentPreference: {
+      type: String,
+      enum: ['p2p_upi', 'central_split'],
+      default: 'p2p_upi',
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

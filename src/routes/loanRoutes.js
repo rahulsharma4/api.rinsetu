@@ -166,6 +166,7 @@ router.post('/', async (req, res) => {
     deductionType,
     deductionAmount,
     doubleCollectionOnMonday,
+    paymentPreference,
   } = req.body;
 
   const numPaidInst = isExistingLoan ? Math.max(0, parseInt(alreadyPaidInstallments || 0)) : 0;
@@ -196,6 +197,7 @@ router.post('/', async (req, res) => {
     deductionType: deductionType || 'flat',
     deductionAmount: deductionAmount ? parseFloat(deductionAmount) : 0,
     doubleCollectionOnMonday: !!doubleCollectionOnMonday,
+    paymentPreference: paymentPreference || 'p2p_upi',
     tenantId: req.admin.tenantId,
   });
 
