@@ -321,9 +321,10 @@ router.put('/:id', async (req, res) => {
     }
 
     const oldValue = loan.toObject();
-    const { status, remarks, dueCharges, lateCharges, lateFeeRate, lateFeeType } = req.body;
+    const { status, remarks, dueCharges, lateCharges, lateFeeRate, lateFeeType, paymentPreference } = req.body;
     if (status) loan.status = status;
     if (remarks !== undefined) loan.remarks = remarks;
+    if (paymentPreference !== undefined) loan.paymentPreference = paymentPreference;
     if (dueCharges !== undefined) loan.dueCharges = parseFloat(dueCharges);
     if (lateCharges !== undefined) loan.lateCharges = parseFloat(lateCharges);
     if (lateFeeRate !== undefined) loan.lateFeeRate = parseFloat(lateFeeRate);

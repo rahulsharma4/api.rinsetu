@@ -118,8 +118,8 @@ router.post('/login', async (req, res) => {
       };
     }
 
-    // 24 hours token validity
-    const token = signToken(tokenPayload, secret, 86400);
+    // 30 days token validity
+    const token = signToken(tokenPayload, secret, 2592000);
 
     console.log('✅ Login successful for:', tokenPayload.username);
     res.json({
@@ -265,7 +265,7 @@ router.put('/profile', async (req, res) => {
     const newToken = signToken(
       { username: user.username, role: user.role, id: user._id, tenantId: user.tenantId },
       secret,
-      86400
+      2592000
     );
 
     res.json({

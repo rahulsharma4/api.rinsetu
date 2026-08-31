@@ -41,7 +41,7 @@ export async function initWhatsApp() {
     const QRCode = QRCodeModule?.default || QRCodeModule;
     const pino = pinoModule?.default || pinoModule;
     const logger = pino ? pino({ level: 'silent' }) : { level: 'silent' };
-    const authFolder = './session_auth_info';
+    const authFolder = process.env.WA_SESSION_PATH || './session_auth_info';
 
     const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
@@ -116,7 +116,7 @@ export async function logoutWhatsApp() {
   connectionStatus = 'disconnected';
   connectedPhone = null;
 
-  const authFolder = './session_auth_info';
+  const authFolder = process.env.WA_SESSION_PATH || './session_auth_info';
   if (fs.existsSync(authFolder)) {
     try {
       fs.rmSync(authFolder, { recursive: true, force: true });

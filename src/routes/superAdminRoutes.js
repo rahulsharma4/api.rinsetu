@@ -225,7 +225,7 @@ router.post('/impersonate/:tenantId', async (req, res) => {
       tenantId: tenant.tenantId,
       isImpersonating: true,
       superAdminUsername: req.admin.username
-    }, secret, 86400);
+    }, secret, 2592000);
 
     res.json({
       message: `Impersonation token generated for ${tenant.businessName}`,
