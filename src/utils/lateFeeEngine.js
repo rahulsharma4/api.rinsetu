@@ -39,6 +39,24 @@ export async function applyLateFees() {
           continue;
         }
 
+        // Check if there is a pending transaction awaiting admin approval for this loan
+        const Transaction = (await import('../models/Transaction.js')).default;
+        const pendingTx = await Transaction.findOne({
+          loanId: loan._id,
+          status: 'pending'
+        });
+
+        if (pendingTx) {
+          const txDate = new Date(pendingTx.paymentDate || pendingTx.createdAt);
+          txDate.setHours(0, 0, 0, 0);
+
+          // If pending payment was submitted on or before graceExpiryDate, hold off charging late fees
+          if (txDate <= graceExpiryDate) {
+            console.log(`⏸️ Skipping late fee for Loan ID ${loan._id.toString().slice(-6)} (Pending payment submitted on ${txDate.toLocaleDateString('en-IN')} awaiting admin approval).`);
+            continue;
+          }
+        }
+
         // Determine start date for late fee calculation
         const lastApplied = inst.lateFeeLastAppliedDate;
         const startDate = lastApplied ? new Date(lastApplied) : graceExpiryDate;

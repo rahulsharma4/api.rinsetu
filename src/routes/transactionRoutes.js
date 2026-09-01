@@ -274,6 +274,10 @@ router.put('/pending/:id/approve', async (req, res) => {
     }
 
     tx.status = '';
+    const approvalDateStr = new Date().toLocaleDateString('en-IN');
+    if (!tx.notes || !tx.notes.includes('Approved by admin')) {
+      tx.notes = (tx.notes || '').trim() + ` (Approved by admin on ${approvalDateStr})`;
+    }
     await tx.save();
 
     // Re-run waterfall schedule calculations and CashBook logging
@@ -281,7 +285,7 @@ router.put('/pending/:id/approve', async (req, res) => {
 
     const freshTx = await Transaction.findById(tx._id).populate('customerId');
 
-    // Queue automated payment receipt WhatsApp notification
+    // Queue automated payment receipt WhatsApp notification & flush obsolete overdue queues
     try {
       const LoanModel = (await import('../models/Loan.js')).default;
       const InstallmentModel = (await import('../models/Installment.js')).default;
@@ -297,13 +301,15 @@ router.put('/pending/:id/approve', async (req, res) => {
       });
       const outstanding = Math.max(0, loanDoc.principalAmount - totalPrincipalPaid) + Math.max(0, totalInterestAccrued - totalInterestPaid);
 
-      const { queueNotification } = await import('../utils/notificationCompiler.js');
+      const { queueNotification, autoQueuePeriodicNotifications } = await import('../utils/notificationCompiler.js');
       await queueNotification(tx.customerId, tx.loanId, 'payment_received', {
         amount: tx.amount,
         outstanding
       });
+      // Auto-scan to cancel obsolete overdue reminders
+      await autoQueuePeriodicNotifications();
     } catch (err) {
-      console.error('Notification failed to queue:', err);
+      console.error('Notification failed to queue or flush on approval:', err.message);
     }
 
     // Audit Log
