@@ -46,14 +46,19 @@ export async function applyLateFees() {
           status: 'pending'
         });
 
+        let endDate = today;
+
         if (pendingTx) {
           const txDate = new Date(pendingTx.paymentDate || pendingTx.createdAt);
           txDate.setHours(0, 0, 0, 0);
 
-          // If pending payment was submitted on or before graceExpiryDate, hold off charging late fees
+          // If pending payment was submitted on or before graceExpiryDate, hold off charging late fees completely
           if (txDate <= graceExpiryDate) {
-            console.log(`⏸️ Skipping late fee for Loan ID ${loan._id.toString().slice(-6)} (Pending payment submitted on ${txDate.toLocaleDateString('en-IN')} awaiting admin approval).`);
+            console.log(`⏸️ Skipping late fee for Loan ID ${loan._id.toString().slice(-6)} (Pending payment submitted on time on ${txDate.toLocaleDateString('en-IN')} awaiting admin approval).`);
             continue;
+          } else {
+            // Customer paid late, so freeze penalty calculation at the exact date customer submitted payment!
+            endDate = txDate;
           }
         }
 
@@ -62,9 +67,9 @@ export async function applyLateFees() {
         const startDate = lastApplied ? new Date(lastApplied) : graceExpiryDate;
         startDate.setHours(0, 0, 0, 0);
 
-        // Difference in days
-        const diffTime = today.getTime() - startDate.getTime();
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        // Difference in days (calculated up to payment submission date)
+        const diffTime = endDate.getTime() - startDate.getTime();
+        const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
 
         if (diffDays > 0) {
           const rate = loan.lateFeeRate !== undefined ? loan.lateFeeRate : 50;

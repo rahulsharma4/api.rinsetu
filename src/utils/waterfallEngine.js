@@ -249,6 +249,39 @@ export async function rebuildInstallmentPayments(loanId) {
     await allocatePaymentWaterfall(loanId, tx.amount, tx.paymentType, tx.paymentDate, tx._id);
   }
 
+  // 4b. Auto-apply any excess advance balance credit toward upcoming/unpaid installments
+  const updatedLoan = await Loan.findById(loanId);
+  if (updatedLoan && updatedLoan.excessAdvanceBalance > 0) {
+    let excess = updatedLoan.excessAdvanceBalance;
+    const unpaidList = await Installment.find({ loanId, status: { $ne: 'paid' } }).sort({ installmentNumber: 1 });
+    
+    for (const inst of unpaidList) {
+      if (excess <= 0) break;
+
+      const interestDue = inst.interestComponent - inst.interestPaid;
+      if (interestDue > 0 && excess > 0) {
+        const alloc = Math.min(excess, interestDue);
+        inst.interestPaid += alloc;
+        inst.amountPaid += alloc;
+        excess -= alloc;
+      }
+
+      const principalDue = inst.principalComponent - inst.principalPaid;
+      if (principalDue > 0 && excess > 0) {
+        const alloc = Math.min(excess, principalDue);
+        inst.principalPaid += alloc;
+        inst.amountPaid += alloc;
+        excess -= alloc;
+      }
+
+      updateInstallmentStatus(inst);
+      await inst.save();
+    }
+
+    updatedLoan.excessAdvanceBalance = Math.max(0, Math.round(excess * 100) / 100);
+    await updatedLoan.save();
+  }
+
   // 5. Update overdue and due_today flags based on current date
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);

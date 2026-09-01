@@ -172,12 +172,13 @@ router.post('/', async (req, res) => {
     });
     const outstanding = Math.max(0, loanDoc.principalAmount - totalPrincipalPaid) + Math.max(0, totalInterestAccrued - totalInterestPaid);
 
-    // Queue automated notification receipt
-    const { queueNotification } = await import('../utils/notificationCompiler.js');
+    // Queue automated notification receipt & flush obsolete overdue reminders
+    const { queueNotification, autoQueuePeriodicNotifications } = await import('../utils/notificationCompiler.js');
     await queueNotification(customerId, loanId, 'payment_received', {
       amount: newTx.amount,
       outstanding
     });
+    await autoQueuePeriodicNotifications();
 
     // Audit Log
     await logAuditAction(
