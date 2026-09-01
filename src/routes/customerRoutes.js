@@ -54,7 +54,12 @@ router.get('/', async (req, res) => {
 // Get a single customer with loans
 router.get('/:id', async (req, res) => {
   try {
-    await updateOverdueStatuses();
+    try {
+      await updateOverdueStatuses();
+    } catch (oErr) {
+      console.error('updateOverdueStatuses warning:', oErr.message);
+    }
+
     const customer = await Customer.findOne({ _id: req.params.id, tenantId: req.admin.tenantId });
     if (!customer) {
       return res.status(404).json({ message: 'Customer not found' });
@@ -63,15 +68,20 @@ router.get('/:id', async (req, res) => {
     const loans = await Loan.find({ customerId: customer._id, tenantId: req.admin.tenantId }).sort({ startDate: -1 });
 
     // Auto-heal historical installment allocations for active loans
-    const { rebuildInstallmentPayments } = await import('../utils/waterfallEngine.js');
-    for (const loan of loans) {
-      await rebuildInstallmentPayments(loan._id);
+    try {
+      const { rebuildInstallmentPayments } = await import('../utils/waterfallEngine.js');
+      for (const loan of loans) {
+        await rebuildInstallmentPayments(loan._id);
+      }
+    } catch (rErr) {
+      console.error('rebuildInstallmentPayments warning:', rErr.message);
     }
 
     const freshLoans = await Loan.find({ customerId: customer._id, tenantId: req.admin.tenantId }).sort({ startDate: -1 });
 
     res.json({ customer, loans: freshLoans });
   } catch (error) {
+    console.error('Error fetching customer details:', error);
     res.status(500).json({ message: error.message });
   }
 });

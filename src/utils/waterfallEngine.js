@@ -97,18 +97,18 @@ export async function allocatePaymentWaterfall(loanId, amount, paymentType = 'bo
   // 2. Default Configured Waterfall Allocation (Chronological EMI Order: Pay Interest + Principal of EMI #1 before moving to EMI #2)
   else {
     // 2a. Pay loan-level due charges and late charges first
-    const dueChargesOutstanding = loan.dueCharges - loan.dueChargesPaid;
+    const dueChargesOutstanding = (loan.dueCharges || 0) - (loan.dueChargesPaid || 0);
     if (dueChargesOutstanding > 0 && remaining > 0) {
       const alloc = Math.min(remaining, dueChargesOutstanding);
-      loan.dueChargesPaid += alloc;
+      loan.dueChargesPaid = (loan.dueChargesPaid || 0) + alloc;
       allocatedDueCharges += alloc;
       remaining -= alloc;
     }
 
-    const lateChargesOutstanding = loan.lateCharges - loan.lateChargesPaid;
+    const lateChargesOutstanding = (loan.lateCharges || 0) - (loan.lateChargesPaid || 0);
     if (lateChargesOutstanding > 0 && remaining > 0) {
       const alloc = Math.min(remaining, lateChargesOutstanding);
-      loan.lateChargesPaid += alloc;
+      loan.lateChargesPaid = (loan.lateChargesPaid || 0) + alloc;
       allocatedLateFee += alloc;
       remaining -= alloc;
     }
@@ -280,9 +280,12 @@ export async function rebuildInstallmentPayments(loanId) {
 
   const freshLoan = await Loan.findById(loanId);
   if (freshLoan) {
-    const allChargesCleared = 
-      (freshLoan.dueCharges - freshLoan.dueChargesPaid === 0) && 
-      (freshLoan.lateCharges - freshLoan.lateChargesPaid === 0);
+    const dueCharges = freshLoan.dueCharges || 0;
+    const dueChargesPaid = freshLoan.dueChargesPaid || 0;
+    const lateCharges = freshLoan.lateCharges || 0;
+    const lateChargesPaid = freshLoan.lateChargesPaid || 0;
+
+    const allChargesCleared = ((dueCharges - dueChargesPaid) <= 0) && ((lateCharges - lateChargesPaid) <= 0);
 
     if (paidInstallmentsCount === totalInstallmentsCount && totalInstallmentsCount > 0 && allChargesCleared) {
       freshLoan.status = 'closed';
