@@ -86,12 +86,12 @@ export async function initWhatsApp() {
         connectedPhone = userJid.split(':')[0] || userJid.split('@')[0];
         console.log(`✅ WhatsApp Gateway connected as +${connectedPhone}!`);
         
-        // Auto flush pending queued messages when WhatsApp connects
+        // Auto scan active installments & flush queued messages when WhatsApp connects
         try {
-          const { flushPendingNotifications } = await import('./notificationCompiler.js');
-          flushPendingNotifications();
+          const { autoQueuePeriodicNotifications } = await import('./notificationCompiler.js');
+          await autoQueuePeriodicNotifications();
         } catch (fErr) {
-          console.error('Failed to auto-flush notifications on WA connect:', fErr.message);
+          console.error('Failed to auto-scan & flush notifications on WA connect:', fErr.message);
         }
       }
     });

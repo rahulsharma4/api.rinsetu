@@ -88,7 +88,8 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
       type: notificationType,
       recipientPhone: customer.phone,
       messageText,
-      status: 'pending'
+      status: 'pending',
+      tenantId: loan.tenantId,
     });
 
     await notification.save();
@@ -134,18 +135,21 @@ import Installment from '../models/Installment.js';
 
 export async function autoQueuePeriodicNotifications() {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-    const threeDaysLater = new Date(today);
-    threeDaysLater.setDate(today.getDate() + 3);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
 
-    // 1. Due Today Notifications
+    const threeDaysLater = new Date(startOfDay);
+    threeDaysLater.setDate(startOfDay.getDate() + 3);
+
+    // 1. Due Today Notifications (Scans installments due today)
     const dueTodayInsts = await Installment.find({
       status: { $ne: 'paid' },
       dueDate: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
+        $gte: startOfDay,
+        $lte: endOfDay
       }
     }).populate({
       path: 'loanId',
@@ -186,7 +190,7 @@ export async function autoQueuePeriodicNotifications() {
       }
     }
 
-    // 3. Overdue Warning Notifications (7-day throttle)
+    // 3. Consolidated Overdue Notifications (Aggregates multiple unpaid/overdue installments into 1 single message)
     const overdueInsts = await Installment.find({
       status: 'overdue'
     }).populate({
@@ -194,28 +198,66 @@ export async function autoQueuePeriodicNotifications() {
       populate: { path: 'customerId' }
     });
 
+    // Group overdue installments by loanId
+    const overdueByLoan = {};
+    for (const inst of overdueInsts) {
+      if (inst.loanId && inst.loanId.customerId) {
+        const lId = inst.loanId._id.toString();
+        if (!overdueByLoan[lId]) {
+          overdueByLoan[lId] = {
+            loan: inst.loanId,
+            customer: inst.loanId.customerId,
+            totalOverdueAmount: 0,
+            count: 0,
+            oldestDueDate: inst.dueDate
+          };
+        }
+        overdueByLoan[lId].totalOverdueAmount += (inst.totalAmount - inst.amountPaid);
+        overdueByLoan[lId].count += 1;
+        if (new Date(inst.dueDate) < new Date(overdueByLoan[lId].oldestDueDate)) {
+          overdueByLoan[lId].oldestDueDate = inst.dueDate;
+        }
+      }
+    }
+
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    for (const inst of overdueInsts) {
-      if (inst.loanId && inst.loanId.customerId) {
-        const customerId = inst.loanId.customerId._id;
-        const loanId = inst.loanId._id;
+    for (const loanIdStr of Object.keys(overdueByLoan)) {
+      const { loan, customer, totalOverdueAmount, count, oldestDueDate } = overdueByLoan[loanIdStr];
 
-        const recentNotification = await Notification.findOne({
-          customerId,
-          loanId,
-          type: 'overdue_warning',
-          createdAt: { $gte: sevenDaysAgo }
-        });
+      // Anti-Spam: Check if overdue reminder was queued/sent in last 7 days
+      const recentNotification = await Notification.findOne({
+        customerId: customer._id,
+        loanId: loan._id,
+        type: 'overdue_warning',
+        createdAt: { $gte: sevenDaysAgo }
+      });
 
-        if (!recentNotification) {
-          await queueNotification(
-            customerId,
-            loanId,
-            'overdue_warning',
-            { amount: inst.totalAmount - inst.amountPaid, dueDate: inst.dueDate }
-          );
+      if (!recentNotification) {
+        // Custom consolidated message for multiple pending installments
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const paymentLink = `${frontendUrl}/pay/loan/${loan._id}`;
+
+        let messageText = '';
+        if (count > 1) {
+          messageText = `Namaste ${customer.name} ji, aapki kul ${count} kistein (Kul ₹${totalOverdueAmount.toLocaleString('en-IN')}) pichli tarikhon se baki hain. Penalty se bachne ke liye kripya bhugtan karein: ${paymentLink} - RinSetu`;
+        } else {
+          messageText = `Namaste ${customer.name} ji, aapki kist ₹${totalOverdueAmount.toLocaleString('en-IN')} overdue hai. Kripya is link se pay karein: ${paymentLink} - RinSetu`;
+        }
+
+        if (customer.enableWhatsappAutomation !== false && loan.enableWhatsappAutomation !== false) {
+          const notification = new Notification({
+            customerId: customer._id,
+            loanId: loan._id,
+            type: 'overdue_warning',
+            recipientPhone: customer.phone,
+            messageText,
+            status: 'pending',
+            tenantId: loan.tenantId
+          });
+          await notification.save();
+          console.log(`✉️ Queued consolidated overdue reminder (${count} EMIs, ₹${totalOverdueAmount}) for ${customer.name}.`);
         }
       }
     }
@@ -230,6 +272,7 @@ export async function autoQueuePeriodicNotifications() {
 
 /**
  * Flushes and sends all 'pending' notifications for a tenant or globally when WhatsApp reconnects.
+ * Features smart payment status check (skips if borrower paid in the meantime).
  */
 export async function flushPendingNotifications(tenantId = null) {
   try {
@@ -239,40 +282,91 @@ export async function flushPendingNotifications(tenantId = null) {
     const pendingList = await Notification.find(query).populate('customerId').populate('loanId');
     if (!pendingList || pendingList.length === 0) return { flushed: 0 };
 
-    console.log(`🚀 Flushing ${pendingList.length} pending WhatsApp notifications...`);
+    console.log(`🚀 Processing ${pendingList.length} pending WhatsApp notifications...`);
     let sentCount = 0;
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
     for (const notif of pendingList) {
       const customer = notif.customerId;
       const loan = notif.loanId;
 
-      if (!customer || !loan) continue;
-      if (customer.enableWhatsappAutomation === false || loan.enableWhatsappAutomation === false) {
+      if (!customer || !loan) {
         notif.status = 'failed';
         await notif.save();
         continue;
       }
 
+      // 1. Check client/loan automation toggles
+      if (customer.enableWhatsappAutomation === false || loan.enableWhatsappAutomation === false) {
+        notif.status = 'failed';
+        await notif.save();
+        console.log(`⏸️ Notification skipped for ${customer.name} (Automation toggled OFF).`);
+        continue;
+      }
+
+      // 2. Real-Time Payment Verification: If all installments are settled, cancel obsolete notification!
+      if (notif.type === 'due_today' || notif.type === 'upcoming_due' || notif.type === 'overdue_warning') {
+        const activeUnpaidCount = await Installment.countDocuments({
+          loanId: loan._id,
+          status: { $in: ['unpaid', 'partially_paid', 'overdue'] }
+        });
+
+        if (activeUnpaidCount === 0) {
+          notif.status = 'failed';
+          await notif.save();
+          console.log(`✅ Obsolete notification cancelled for ${customer.name} (Installments ALREADY PAID).`);
+          continue;
+        }
+      }
+
+      // 3. Single Message Per Day Anti-Spam Check: Don't send multiple reminders to same borrower today
+      const alreadySentToday = await Notification.findOne({
+        customerId: customer._id,
+        status: 'sent',
+        sentAt: { $gte: startOfDay },
+        _id: { $ne: notif._id }
+      });
+
+      if (alreadySentToday && notif.type !== 'payment_received') {
+        console.log(`⏳ Reminder for ${customer.name} deferred (Already received a reminder message today).`);
+        continue;
+      }
+
       try {
-        const { sendWhatsAppTemplate } = await import('./whatsappHelper.js');
-        const templateKey = 
-          notif.type === 'upcoming_due' ? 'upcomingDue' :
-          notif.type === 'due_today' ? 'dueToday' :
-          notif.type === 'payment_received' ? 'paymentReceived' :
-          notif.type === 'overdue_warning' ? 'overdueWarning' : notif.type;
+        let sentSuccess = false;
+        
+        // 1. Try local Baileys WhatsApp Gateway first
+        try {
+          const { sendWhatsAppMessage } = await import('./whatsappService.js');
+          sentSuccess = await sendWhatsAppMessage(notif.recipientPhone, notif.messageText);
+        } catch (_) {}
 
-        const sentResult = await sendWhatsAppTemplate(
-          notif.tenantId || loan.tenantId,
-          notif.recipientPhone,
-          templateKey,
-          [customer.name, '0', new Date().toLocaleDateString('en-IN'), loan._id.toString().slice(-6), '0']
-        );
+        // 2. Fallback to Meta Cloud API if local gateway is unavailable
+        if (!sentSuccess) {
+          const { sendWhatsAppTemplate } = await import('./whatsappHelper.js');
+          const templateKey = 
+            notif.type === 'upcoming_due' ? 'upcomingDue' :
+            notif.type === 'due_today' ? 'dueToday' :
+            notif.type === 'payment_received' ? 'paymentReceived' :
+            notif.type === 'overdue_warning' ? 'overdueWarning' : notif.type;
 
-        if (sentResult) {
+          const sentResult = await sendWhatsAppTemplate(
+            notif.tenantId || loan.tenantId,
+            notif.recipientPhone,
+            templateKey,
+            [customer.name, '0', new Date().toLocaleDateString('en-IN'), loan._id.toString().slice(-6), '0']
+          );
+          if (sentResult) sentSuccess = true;
+        }
+
+        if (sentSuccess) {
           notif.status = 'sent';
           notif.sentAt = new Date();
           await notif.save();
           sentCount++;
+          console.log(`✅ Dispatched reminder message to ${customer.name} (${customer.phone}).`);
         }
       } catch (err) {
         console.error('Flush notification item error:', err.message);

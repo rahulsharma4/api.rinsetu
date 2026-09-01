@@ -45,9 +45,9 @@ export async function runDailyAccrualJob() {
 }
 
 export function startCronEngine() {
-  // Run every night at 12:00 AM (0 0 * * *)
-  cron.schedule('0 0 * * *', async () => {
+  // Run every morning at 7:00 AM (0 7 * * *)
+  cron.schedule('0 7 * * *', async () => {
     await runDailyAccrualJob();
   });
-  console.log('🚀 node-cron scheduler engine initialized: Scheduled to run every night at 12:00 AM.');
+  console.log('🚀 node-cron scheduler engine initialized: Scheduled to run every morning at 7:00 AM.');
 }
