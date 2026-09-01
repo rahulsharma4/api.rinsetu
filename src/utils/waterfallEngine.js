@@ -88,62 +88,54 @@ export async function allocatePaymentWaterfall(loanId, amount, paymentType = 'bo
       remaining -= alloc;
     }
   }
-  // 2. Default Configured Waterfall Allocation
+  // 2. Default Configured Waterfall Allocation (Chronological EMI Order: Pay Interest + Principal of EMI #1 before moving to EMI #2)
   else {
-    for (const step of priority) {
-      if (remaining <= 0) break;
+    // 2a. Pay loan-level due charges and late charges first
+    const dueChargesOutstanding = loan.dueCharges - loan.dueChargesPaid;
+    if (dueChargesOutstanding > 0 && remaining > 0) {
+      const alloc = Math.min(remaining, dueChargesOutstanding);
+      loan.dueChargesPaid += alloc;
+      allocatedDueCharges += alloc;
+      remaining -= alloc;
+    }
 
-      if (step === 'dueCharges') {
-        const dueChargesOutstanding = loan.dueCharges - loan.dueChargesPaid;
-        if (dueChargesOutstanding > 0) {
-          const alloc = Math.min(remaining, dueChargesOutstanding);
-          loan.dueChargesPaid += alloc;
-          allocatedDueCharges += alloc;
+    const lateChargesOutstanding = loan.lateCharges - loan.lateChargesPaid;
+    if (lateChargesOutstanding > 0 && remaining > 0) {
+      const alloc = Math.min(remaining, lateChargesOutstanding);
+      loan.lateChargesPaid += alloc;
+      allocatedLateFee += alloc;
+      remaining -= alloc;
+    }
+
+    // 2b. Pay installments in chronological order (EMI #1 interest & principal, then EMI #2, etc.)
+    if (remaining > 0) {
+      const installments = await Installment.find({ loanId, status: { $ne: 'paid' } }).sort({ installmentNumber: 1 });
+      for (const inst of installments) {
+        if (remaining <= 0) break;
+
+        // First pay interest component of THIS installment
+        const interestDue = inst.interestComponent - inst.interestPaid;
+        if (interestDue > 0 && remaining > 0) {
+          const alloc = Math.min(remaining, interestDue);
+          inst.interestPaid += alloc;
+          inst.amountPaid += alloc;
+          allocatedInterest += alloc;
           remaining -= alloc;
         }
-      } 
-      else if (step === 'lateCharges') {
-        const lateChargesOutstanding = loan.lateCharges - loan.lateChargesPaid;
-        if (lateChargesOutstanding > 0) {
-          const alloc = Math.min(remaining, lateChargesOutstanding);
-          loan.lateChargesPaid += alloc;
-          allocatedLateFee += alloc;
+
+        // Second pay principal component of THIS installment
+        const principalDue = inst.principalComponent - inst.principalPaid;
+        if (principalDue > 0 && remaining > 0) {
+          const alloc = Math.min(remaining, principalDue);
+          inst.principalPaid += alloc;
+          inst.amountPaid += alloc;
+          allocatedPrincipal += alloc;
           remaining -= alloc;
         }
-      } 
-      else if (step === 'interest') {
-        const installments = await Installment.find({ loanId, status: { $ne: 'paid' } }).sort({ installmentNumber: 1 });
-        for (const inst of installments) {
-          if (remaining <= 0) break;
-          const interestDue = inst.interestComponent - inst.interestPaid;
-          if (interestDue > 0) {
-            const alloc = Math.min(remaining, interestDue);
-            inst.interestPaid += alloc;
-            inst.amountPaid += alloc;
-            allocatedInterest += alloc;
-            remaining -= alloc;
-            inst.lastPaymentDate = paymentDate;
-            updateInstallmentStatus(inst);
-            await inst.save();
-          }
-        }
-      } 
-      else if (step === 'principal') {
-        const installments = await Installment.find({ loanId, status: { $ne: 'paid' } }).sort({ installmentNumber: 1 });
-        for (const inst of installments) {
-          if (remaining <= 0) break;
-          const principalDue = inst.principalComponent - inst.principalPaid;
-          if (principalDue > 0) {
-            const alloc = Math.min(remaining, principalDue);
-            inst.principalPaid += alloc;
-            inst.amountPaid += alloc;
-            allocatedPrincipal += alloc;
-            remaining -= alloc;
-            inst.lastPaymentDate = paymentDate;
-            updateInstallmentStatus(inst);
-            await inst.save();
-          }
-        }
+
+        inst.lastPaymentDate = paymentDate;
+        updateInstallmentStatus(inst);
+        await inst.save();
       }
     }
   }

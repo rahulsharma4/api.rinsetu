@@ -61,7 +61,16 @@ router.get('/:id', async (req, res) => {
     }
     
     const loans = await Loan.find({ customerId: customer._id, tenantId: req.admin.tenantId }).sort({ startDate: -1 });
-    res.json({ customer, loans });
+
+    // Auto-heal historical installment allocations for active loans
+    const { rebuildInstallmentPayments } = await import('../utils/waterfallEngine.js');
+    for (const loan of loans) {
+      await rebuildInstallmentPayments(loan._id);
+    }
+
+    const freshLoans = await Loan.find({ customerId: customer._id, tenantId: req.admin.tenantId }).sort({ startDate: -1 });
+
+    res.json({ customer, loans: freshLoans });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
