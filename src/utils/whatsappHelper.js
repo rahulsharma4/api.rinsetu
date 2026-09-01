@@ -40,7 +40,7 @@ export async function sendWhatsAppTemplate(tenantId, toPhone, templateKey, bodyP
         return null;
       }
 
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const frontendUrl = process.env.FRONTEND_URL || 'https://rin-setu-jk8h-amber.vercel.app';
       const paymentLink = `${frontendUrl}/pay/loan/${bodyParams[3] || ''}`;
 
       const messageText = templateText

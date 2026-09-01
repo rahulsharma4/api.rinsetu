@@ -57,7 +57,7 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
     const formattedOutstanding = data.outstanding ? parseFloat(data.outstanding).toLocaleString('en-IN') : '0';
     const formattedDate = data.dueDate ? new Date(data.dueDate).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
     
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://rin-setu-jk8h-amber.vercel.app';
     const paymentLink = `${frontendUrl}/pay/loan/${loan._id}`;
 
     let messageText = template
@@ -236,7 +236,7 @@ export async function autoQueuePeriodicNotifications() {
 
       if (!recentNotification) {
         // Custom consolidated message for multiple pending installments
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://rin-setu-jk8h-amber.vercel.app';
         const paymentLink = `${frontendUrl}/pay/loan/${loan._id}`;
 
         let messageText = '';

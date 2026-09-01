@@ -1,26 +1,78 @@
 import fs from 'fs';
+import WASession from '../models/WASession.js';
 
 let sock = null;
 let latestQR = null;
 let connectionStatus = 'unavailable'; // 'connecting', 'connected', 'qr_ready', 'disconnected', 'unavailable'
 let connectedPhone = null;
 
-// Only run on local server — Baileys requires a persistent process & QR scan
-const IS_LOCAL = process.env.NODE_ENV !== 'production' || process.env.ENABLE_LOCAL_WA === 'true';
+const IS_LOCAL = true; // Always enable WhatsApp Gateway
 
-export async function initWhatsApp() {
-  if (!IS_LOCAL) {
-    console.log('ℹ️ WhatsApp local gateway is disabled in production. Use Cloud API mode instead.');
-    connectionStatus = 'unavailable';
-    return;
+async function useMongoDBAuthState(baileysModule) {
+  const { initAuthCreds, BufferJSON, proto } = baileysModule;
+
+  const credsDoc = await WASession.findById('creds');
+  let creds;
+  if (credsDoc && credsDoc.data) {
+    creds = JSON.parse(JSON.stringify(credsDoc.data), BufferJSON.reviver);
+  } else {
+    creds = initAuthCreds();
   }
 
+  return {
+    state: {
+      creds,
+      keys: {
+        get: async (type, ids) => {
+          const data = {};
+          await Promise.all(
+            ids.map(async (id) => {
+              const doc = await WASession.findById(`${type}:${id}`);
+              if (doc && doc.data) {
+                let value = JSON.parse(JSON.stringify(doc.data), BufferJSON.reviver);
+                if (type === 'app-state-sync-key' && value && proto) {
+                  value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                }
+                data[id] = value;
+              }
+            })
+          );
+          return data;
+        },
+        set: async (data) => {
+          const tasks = [];
+          for (const category in data) {
+            for (const id in data[category]) {
+              const value = data[category][id];
+              const key = `${category}:${id}`;
+              if (value) {
+                const serialized = JSON.parse(JSON.stringify(value, BufferJSON.replacer));
+                tasks.push(
+                  WASession.findByIdAndUpdate(key, { _id: key, data: serialized }, { upsert: true })
+                );
+              } else {
+                tasks.push(WASession.findByIdAndDelete(key));
+              }
+            }
+          }
+          await Promise.all(tasks);
+        },
+      },
+    },
+    saveCreds: async () => {
+      const serializedCreds = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
+      await WASession.findByIdAndUpdate('creds', { _id: 'creds', data: serializedCreds }, { upsert: true });
+    },
+  };
+}
+
+export async function initWhatsApp() {
   if (sock) return; // Already running or connected
 
   connectionStatus = 'connecting';
   latestQR = null;
   connectedPhone = null;
-  console.log('🔄 Initializing local WhatsApp Gateway (Baileys)...');
+  console.log('🔄 Initializing local WhatsApp Gateway (MongoDB Persisted Baileys)...');
 
   try {
     // Dynamically import so missing package doesn't crash entire server
@@ -37,13 +89,12 @@ export async function initWhatsApp() {
     }
 
     const makeWASocket = baileysModule.default;
-    const { useMultiFileAuthState, DisconnectReason } = baileysModule;
+    const { DisconnectReason } = baileysModule;
     const QRCode = QRCodeModule?.default || QRCodeModule;
     const pino = pinoModule?.default || pinoModule;
     const logger = pino ? pino({ level: 'silent' }) : { level: 'silent' };
-    const authFolder = process.env.WA_SESSION_PATH || './session_auth_info';
 
-    const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+    const { state, saveCreds } = await useMongoDBAuthState(baileysModule);
 
     const initSocket = makeWASocket.default || makeWASocket;
     sock = initSocket({
@@ -124,14 +175,11 @@ export async function logoutWhatsApp() {
   connectionStatus = 'disconnected';
   connectedPhone = null;
 
-  const authFolder = process.env.WA_SESSION_PATH || './session_auth_info';
-  if (fs.existsSync(authFolder)) {
-    try {
-      fs.rmSync(authFolder, { recursive: true, force: true });
-      console.log('🗑️ WhatsApp session folder cleared.');
-    } catch (err) {
-      console.error('Failed to delete auth folder:', err);
-    }
+  try {
+    await WASession.deleteMany({});
+    console.log('🗑️ WhatsApp session documents cleared from MongoDB.');
+  } catch (err) {
+    console.error('Failed to clear WASession from MongoDB:', err);
   }
 
   if (IS_LOCAL) setTimeout(initWhatsApp, 1000);
