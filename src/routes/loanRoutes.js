@@ -168,6 +168,7 @@ router.post('/', async (req, res) => {
     deductionAmount,
     doubleCollectionOnMonday,
     paymentPreference,
+    enableWhatsappAutomation,
   } = req.body;
 
   const numPaidInst = isExistingLoan ? Math.max(0, parseInt(alreadyPaidInstallments || 0)) : 0;
@@ -200,6 +201,7 @@ router.post('/', async (req, res) => {
     deductionAmount: deductionAmount ? parseFloat(deductionAmount) : 0,
     doubleCollectionOnMonday: !!doubleCollectionOnMonday,
     paymentPreference: paymentPreference || 'p2p_upi',
+    enableWhatsappAutomation: enableWhatsappAutomation !== undefined ? !!enableWhatsappAutomation : true,
     tenantId: req.admin.tenantId,
   });
 

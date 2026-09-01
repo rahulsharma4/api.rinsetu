@@ -162,6 +162,10 @@ const loanSchema = new mongoose.Schema(
       enum: ['p2p_upi', 'central_split'],
       default: 'p2p_upi',
     },
+    enableWhatsappAutomation: {
+      type: Boolean,
+      default: true,
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

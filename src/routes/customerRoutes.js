@@ -86,6 +86,7 @@ router.post('/', async (req, res) => {
     email,
     password,
     isPortalEnabled,
+    enableWhatsappAutomation,
   } = req.body;
 
   try {
@@ -114,6 +115,7 @@ router.post('/', async (req, res) => {
       email: email ? email.trim().toLowerCase() : undefined,
       password: hashedPassword,
       isPortalEnabled: !!isPortalEnabled,
+      enableWhatsappAutomation: enableWhatsappAutomation !== undefined ? !!enableWhatsappAutomation : true,
     });
 
     const newCustomer = await customer.save();
@@ -131,6 +133,37 @@ router.post('/', async (req, res) => {
     res.status(201).json(newCustomer);
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+});
+
+// Toggle customer WhatsApp automation setting
+router.put('/:id/toggle-whatsapp', async (req, res) => {
+  try {
+    const customer = await Customer.findOne({ _id: req.params.id, tenantId: req.admin.tenantId });
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    const newStatus = customer.enableWhatsappAutomation === false ? true : false;
+    customer.enableWhatsappAutomation = newStatus;
+    await customer.save();
+
+    await logAuditAction(
+      req.admin?.username || 'admin',
+      'CUSTOMER_WHATSAPP_TOGGLED',
+      `WhatsApp auto-reminders ${newStatus ? 'ENABLED' : 'DISABLED'} for borrower: ${customer.name}`,
+      null,
+      { enableWhatsappAutomation: newStatus },
+      req
+    );
+
+    res.json({
+      message: `WhatsApp automation ${newStatus ? 'enabled' : 'disabled'} for ${customer.name}.`,
+      enableWhatsappAutomation: newStatus,
+      customer
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 

@@ -87,6 +87,10 @@ const customerSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    enableWhatsappAutomation: {
+      type: Boolean,
+      default: true,
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

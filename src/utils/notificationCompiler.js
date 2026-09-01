@@ -26,6 +26,11 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
       return null;
     }
 
+    if (customer.enableWhatsappAutomation === false || loan.enableWhatsappAutomation === false) {
+      console.log(`🔌 WhatsApp Automation disabled for borrower ${customer.name} or Loan ${loan._id}. Skipping message.`);
+      return null;
+    }
+
     let template = '';
     let notificationType = '';
     
@@ -216,7 +221,68 @@ export async function autoQueuePeriodicNotifications() {
     }
 
     console.log('🔔 autoQueuePeriodicNotifications completed.');
+    // Auto-flush pending queue after periodic scan
+    await flushPendingNotifications();
   } catch (err) {
     console.error('Error during auto-queueing periodic notifications:', err.message);
+  }
+}
+
+/**
+ * Flushes and sends all 'pending' notifications for a tenant or globally when WhatsApp reconnects.
+ */
+export async function flushPendingNotifications(tenantId = null) {
+  try {
+    const query = { status: 'pending' };
+    if (tenantId) query.tenantId = tenantId;
+
+    const pendingList = await Notification.find(query).populate('customerId').populate('loanId');
+    if (!pendingList || pendingList.length === 0) return { flushed: 0 };
+
+    console.log(`🚀 Flushing ${pendingList.length} pending WhatsApp notifications...`);
+    let sentCount = 0;
+
+    for (const notif of pendingList) {
+      const customer = notif.customerId;
+      const loan = notif.loanId;
+
+      if (!customer || !loan) continue;
+      if (customer.enableWhatsappAutomation === false || loan.enableWhatsappAutomation === false) {
+        notif.status = 'failed';
+        await notif.save();
+        continue;
+      }
+
+      try {
+        const { sendWhatsAppTemplate } = await import('./whatsappHelper.js');
+        const templateKey = 
+          notif.type === 'upcoming_due' ? 'upcomingDue' :
+          notif.type === 'due_today' ? 'dueToday' :
+          notif.type === 'payment_received' ? 'paymentReceived' :
+          notif.type === 'overdue_warning' ? 'overdueWarning' : notif.type;
+
+        const sentResult = await sendWhatsAppTemplate(
+          notif.tenantId || loan.tenantId,
+          notif.recipientPhone,
+          templateKey,
+          [customer.name, '0', new Date().toLocaleDateString('en-IN'), loan._id.toString().slice(-6), '0']
+        );
+
+        if (sentResult) {
+          notif.status = 'sent';
+          notif.sentAt = new Date();
+          await notif.save();
+          sentCount++;
+        }
+      } catch (err) {
+        console.error('Flush notification item error:', err.message);
+      }
+    }
+
+    console.log(`✅ Flushed and dispatched ${sentCount} pending notifications.`);
+    return { flushed: sentCount };
+  } catch (err) {
+    console.error('Error in flushPendingNotifications:', err.message);
+    return { flushed: 0, error: err.message };
   }
 }
