@@ -8,13 +8,19 @@ function updateInstallmentStatus(inst) {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
   if (inst.amountPaid >= (inst.totalAmount - 0.01)) {
     inst.status = 'paid';
   } else if (inst.amountPaid > 0) {
     inst.status = 'partially_paid';
   } else {
-    if (new Date(inst.dueDate) < startOfDay) {
+    const dueTime = new Date(inst.dueDate).getTime();
+    if (dueTime < startOfDay.getTime()) {
       inst.status = 'overdue';
+    } else if (dueTime <= endOfDay.getTime()) {
+      inst.status = 'due_today';
     } else {
       inst.status = 'unpaid';
     }
@@ -243,18 +249,24 @@ export async function rebuildInstallmentPayments(loanId) {
     await allocatePaymentWaterfall(loanId, tx.amount, tx.paymentType, tx.paymentDate, tx._id);
   }
 
-  // 5. Update overdue flags based on current date (compared against start of today)
+  // 5. Update overdue and due_today flags based on current date
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
   const unpaidInstallments = await Installment.find({
     loanId,
-    status: { $in: ['unpaid', 'partially_paid'] }
+    status: { $in: ['unpaid', 'partially_paid', 'due_today'] }
   });
 
   for (const inst of unpaidInstallments) {
-    if (new Date(inst.dueDate) < startOfDay) {
+    const dueTime = new Date(inst.dueDate).getTime();
+    if (dueTime < startOfDay.getTime()) {
       inst.status = 'overdue';
+    } else if (dueTime <= endOfDay.getTime()) {
+      inst.status = 'due_today';
     } else {
       inst.status = 'upcoming';
     }
