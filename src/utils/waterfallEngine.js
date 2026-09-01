@@ -5,14 +5,15 @@ import Settings from '../models/Settings.js';
 import CashBook from '../models/CashBook.js';
 
 function updateInstallmentStatus(inst) {
-  if (inst.amountPaid >= inst.totalAmount) {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  if (inst.amountPaid >= (inst.totalAmount - 0.01)) {
     inst.status = 'paid';
   } else if (inst.amountPaid > 0) {
     inst.status = 'partially_paid';
   } else {
-    // Check if overdue
-    const today = new Date();
-    if (new Date(inst.dueDate) < today) {
+    if (new Date(inst.dueDate) < startOfDay) {
       inst.status = 'overdue';
     } else {
       inst.status = 'unpaid';
@@ -250,15 +251,17 @@ export async function rebuildInstallmentPayments(loanId) {
     await allocatePaymentWaterfall(loanId, tx.amount, tx.paymentType, tx.paymentDate, tx._id);
   }
 
-  // 5. Update overdue flags based on current date
-  const today = new Date();
+  // 5. Update overdue flags based on current date (compared against start of today)
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
   const unpaidInstallments = await Installment.find({
     loanId,
     status: { $in: ['unpaid', 'partially_paid'] }
   });
 
   for (const inst of unpaidInstallments) {
-    if (new Date(inst.dueDate) < today) {
+    if (new Date(inst.dueDate) < startOfDay) {
       inst.status = 'overdue';
     } else {
       inst.status = 'upcoming';

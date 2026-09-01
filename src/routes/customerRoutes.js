@@ -54,6 +54,7 @@ router.get('/', async (req, res) => {
 // Get a single customer with loans
 router.get('/:id', async (req, res) => {
   try {
+    await updateOverdueStatuses();
     const customer = await Customer.findOne({ _id: req.params.id, tenantId: req.admin.tenantId });
     if (!customer) {
       return res.status(404).json({ message: 'Customer not found' });

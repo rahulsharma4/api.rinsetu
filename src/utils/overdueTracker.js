@@ -7,11 +7,12 @@ import Loan from '../models/Loan.js';
  */
 export async function updateOverdueStatuses() {
   try {
-    const today = new Date();
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-    // 1. Find all unpaid or partially paid installments that are past due date
+    // 1. Find all unpaid or partially paid installments that are past due date (before start of today)
     const pastDueInstallments = await Installment.find({
-      dueDate: { $lt: today },
+      dueDate: { $lt: startOfDay },
       status: { $in: ['unpaid', 'partially_paid'] }
     });
 
