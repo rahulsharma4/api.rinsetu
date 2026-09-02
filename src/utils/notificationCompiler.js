@@ -46,6 +46,9 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
     } else if (type === 'overdue_warning') {
       template = settings.whatsappTemplates.overdueReminder;
       notificationType = 'overdue_warning';
+    } else if (type === 'guarantor_warning') {
+      template = settings.whatsappTemplates.guarantorWarning;
+      notificationType = 'guarantor_warning';
     }
 
     if (!template) {
@@ -66,7 +69,11 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
       .replace(/{{dueDate}}/g, formattedDate)
       .replace(/{{loanId}}/g, loan._id.toString().slice(-6))
       .replace(/{{paymentLink}}/g, paymentLink)
-      .replace(/{{outstanding}}/g, formattedOutstanding);
+      .replace(/{{outstanding}}/g, formattedOutstanding)
+      .replace(/{{guarantorName}}/g, customer.guarantorName || 'Guarantor');
+
+    const targetPhone = type === 'guarantor_warning' ? customer.guarantorPhone : customer.phone;
+    if (!targetPhone) return null;
 
     // Skip duplicates in queue
     const existing = await Notification.findOne({
@@ -74,7 +81,7 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
       loanId,
       type: notificationType,
       status: 'pending',
-      recipientPhone: customer.phone,
+      recipientPhone: targetPhone,
       messageText
     });
 
@@ -86,7 +93,7 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
       customerId,
       loanId,
       type: notificationType,
-      recipientPhone: customer.phone,
+      recipientPhone: targetPhone,
       messageText,
       status: 'pending',
       tenantId: loan.tenantId,
@@ -102,13 +109,14 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
         type === 'upcoming_due' ? 'upcomingDue' :
         type === 'due_today' ? 'dueToday' :
         type === 'payment_received' ? 'paymentReceived' :
-        type === 'overdue_warning' ? 'overdueWarning' : type;
+        type === 'overdue_warning' ? 'overdueWarning' : 
+        type === 'guarantor_warning' ? 'guarantorWarning' : type;
 
       const sentResult = await sendWhatsAppTemplate(
         loan.tenantId,
-        customer.phone,
+        targetPhone,
         templateKey,
-        [customer.name, formattedAmount, formattedDate, loan._id.toString().slice(-6), formattedOutstanding]
+        [customer.name, formattedAmount, formattedDate, loan._id.toString().slice(-6), formattedOutstanding, customer.guarantorName || 'Guarantor']
       );
 
       if (sentResult) {
@@ -258,6 +266,27 @@ export async function autoQueuePeriodicNotifications() {
           });
           await notification.save();
           console.log(`✉️ Queued consolidated overdue reminder (${count} EMIs, ₹${totalOverdueAmount}) for ${customer.name}.`);
+        }
+      }
+
+      // 4. Guarantor Warning Notice
+      // If customer has 2 or more overdue installments and a guarantor is registered
+      if (count >= 2 && customer.guarantorPhone) {
+        const recentGuarantorNotice = await Notification.findOne({
+          customerId: customer._id,
+          loanId: loan._id,
+          type: 'guarantor_warning',
+          createdAt: { $gte: sevenDaysAgo } // Throttle to 1 per week
+        });
+        
+        if (!recentGuarantorNotice && customer.enableWhatsappAutomation !== false && loan.enableWhatsappAutomation !== false) {
+           await queueNotification(
+             customer._id,
+             loan._id,
+             'guarantor_warning',
+             { amount: totalOverdueAmount }
+           );
+           console.log(`✉️ Queued Guarantor Warning for ${customer.name}'s loan (Sent to ${customer.guarantorName}).`);
         }
       }
     }

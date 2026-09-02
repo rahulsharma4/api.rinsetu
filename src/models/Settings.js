@@ -31,6 +31,10 @@ const settingsSchema = new mongoose.Schema(
         type: String,
         default: 'Badhai ho {{customerName}} ji! Aapka loan ID {{loanId}} ab poori tarah close ho gaya hai. Aapka closure statement ready hai. - RinSetu',
       },
+      guarantorWarning: {
+        type: String,
+        default: 'Namaste {{guarantorName}} ji, aapne {{customerName}} ke loan (ID: {{loanId}}) ki guarantee li thi. Unki 2 ya adhik kishtein baunce/overdue ho gayi hain (₹{{amount}}). Kripya unse sampark karein. - RinSetu',
+      },
     },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,

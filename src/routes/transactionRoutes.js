@@ -135,6 +135,56 @@ router.get('/', async (req, res) => {
 });
 
 // Record a payment (applies waterfall allocation)
+router.post('/agent-collection', async (req, res) => {
+  const { customerId, amount, geo_location, notes } = req.body;
+
+  try {
+    const LoanModel = (await import('../models/Loan.js')).default;
+    // Find oldest active loan for this customer
+    const loan = await LoanModel.findOne({ customerId, status: { $in: ['active', 'overdue', 'npa'] }, tenantId: req.admin.tenantId }).sort({ startDate: 1 });
+    
+    if (!loan) {
+      return res.status(400).json({ message: 'No active loans found for this customer.' });
+    }
+
+    const transaction = new Transaction({
+      loanId: loan._id,
+      customerId,
+      amount: parseFloat(amount),
+      paymentType: 'both',
+      paymentMode: 'cash',
+      paymentDate: new Date(),
+      notes: notes || 'Field Agent GPS Collection',
+      geo_location,
+      tenantId: req.admin.tenantId,
+    });
+
+    const newTx = await transaction.save();
+    
+    // Add to cashbook
+    const CashBookModel = (await import('../models/CashBook.js')).default;
+    await CashBookModel.create({
+      tenantId: req.admin.tenantId,
+      loanId: loan._id,
+      customerId,
+      transactionId: newTx._id,
+      type: 'in',
+      amount: parseFloat(amount),
+      mode: 'cash',
+      date: new Date(),
+      category: 'collection',
+      description: 'Field Agent Collection',
+      collectedBy: req.admin._id,
+    });
+
+    await rebuildInstallmentPayments(loan._id);
+    res.json({ message: 'Collection Recorded', transaction: newTx });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Record a manual payment from admin portal
 router.post('/', async (req, res) => {
   const { loanId, customerId, amount, paymentType, paymentMode, paymentDate, notes } = req.body;
 

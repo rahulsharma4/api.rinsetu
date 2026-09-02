@@ -86,7 +86,7 @@ const loanSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'paid', 'overdue', 'closed'],
+      enum: ['active', 'paid', 'overdue', 'closed', 'npa'],
       default: 'active',
     },
     closureDate: {
@@ -134,6 +134,15 @@ const loanSchema = new mongoose.Schema(
       type: String,
       enum: ['daily', 'flat'],
       default: 'daily',
+    },
+    eSignStatus: {
+      type: String,
+      enum: ['pending', 'signed'],
+      default: 'pending',
+    },
+    eSignOtp: {
+      type: String,
+      select: false,
     },
     remarks: {
       type: String,

@@ -25,6 +25,21 @@ export async function applyLateFees() {
         dueDate: { $lt: new Date() } // due date is in the past
       });
 
+      // 🚨 NPA Check: If oldest unpaid installment is >= 90 days overdue, mark loan as NPA and freeze fees
+      if (overdueInstallments.length > 0) {
+        const sortedInstallments = [...overdueInstallments].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+        const oldestDueDate = new Date(sortedInstallments[0].dueDate);
+        oldestDueDate.setHours(0, 0, 0, 0);
+        
+        const daysOverdue = Math.floor((today.getTime() - oldestDueDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysOverdue >= 90) {
+          console.log(`🚨 Marking Loan ID ${loan._id} as NPA. Oldest installment is ${daysOverdue} days overdue.`);
+          loan.status = 'npa';
+          await loan.save();
+          continue; // Skip fee calculations
+        }
+      }
+
       let loanUpdated = false;
       let loanFeeAdded = 0;
 

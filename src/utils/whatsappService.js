@@ -146,6 +146,80 @@ export async function initWhatsApp() {
         }
       }
     });
+
+    // Two-Way WhatsApp Bot (Auto-Responder)
+    sock.ev.on('messages.upsert', async (m) => {
+      const msg = m.messages[0];
+      if (!msg.message || msg.key.fromMe) return; // ignore outgoing
+
+      const senderJid = msg.key.remoteJid;
+      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+      
+      const incomingText = text.trim().toLowerCase();
+      
+      if (['balance', 'pay'].includes(incomingText)) {
+        try {
+          // Extract 10-digit phone number
+          let phoneStr = senderJid.split('@')[0];
+          if (phoneStr.startsWith('91') && phoneStr.length === 12) phoneStr = phoneStr.substring(2);
+
+          const Customer = (await import('../models/Customer.js')).default;
+          const Loan = (await import('../models/Loan.js')).default;
+          const Installment = (await import('../models/Installment.js')).default;
+          
+          const customer = await Customer.findOne({ phone: { $regex: new RegExp(phoneStr + '$') } });
+          
+          if (!customer) {
+            await sock.sendMessage(senderJid, { text: "माफ़ करें, यह नंबर हमारे रिकॉर्ड में नहीं है। कृपया अपने रजिस्टर्ड मोबाइल नंबर से संपर्क करें।" });
+            return;
+          }
+
+          const loans = await Loan.find({ customerId: customer._id, status: { $in: ['active', 'overdue', 'npa'] } });
+          
+          if (loans.length === 0) {
+             await sock.sendMessage(senderJid, { text: `नमस्ते ${customer.name}, आपका कोई भी ऋण/लोन फिलहाल एक्टिव नहीं है।` });
+             return;
+          }
+
+          let replyText = `नमस्ते *${customer.name}*,\n\n`;
+          let totalDue = 0;
+          let activePrincipal = 0;
+          
+          for (const loan of loans) {
+            activePrincipal += loan.principalAmount;
+            const overdue = await Installment.find({ loanId: loan._id, status: { $in: ['unpaid', 'partially_paid', 'overdue'] }, dueDate: { $lt: new Date() } });
+            
+            let loanDue = 0;
+            overdue.forEach(inst => {
+                loanDue += Math.max(0, inst.totalAmount - (inst.amountPaid || 0));
+            });
+            // Add loan late fees
+            loanDue += (loan.lateCharges || 0) - (loan.lateChargesPaid || 0);
+            totalDue += loanDue;
+          }
+
+          if (totalDue > 0) {
+            replyText += `आपकी कुल बकाया/ओवरड्यू राशि: *₹${Math.round(totalDue)}*\n\n`;
+            if (incomingText === 'pay') {
+               // Generate payment portal link. Assuming frontend is running locally or deployed.
+               // We will use a generic placeholder for the frontend domain or relative path if possible, 
+               // but typically you'd read process.env.FRONTEND_URL.
+               const frontendUrl = process.env.FRONTEND_URL || 'https://rin-setu.vercel.app';
+               replyText += `💳 भुगतान करने के लिए इस लिंक पर क्लिक करें:\n👉 ${frontendUrl}/pay/${customer._id}\n\n`;
+            } else {
+               replyText += `कृपया जल्द से जल्द भुगतान करें। ('pay' लिखकर रिप्लाई करें)\n`;
+            }
+          } else {
+            replyText += `आपकी कोई भी किश्त अभी ओवरड्यू नहीं है। आपका खाता बिल्कुल सही चल रहा है।\n`;
+          }
+
+          await sock.sendMessage(senderJid, { text: replyText });
+
+        } catch (botErr) {
+          console.error("WhatsApp Bot Error:", botErr);
+        }
+      }
+    });
   } catch (err) {
     console.warn('⚠️ WhatsApp Gateway init failed (non-critical):', err.message);
     connectionStatus = 'disconnected';

@@ -89,6 +89,11 @@ const transactionSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    geo_location: {
+      lat: { type: Number },
+      lng: { type: Number },
+      timestamp: { type: Date }
+    },
   },
   {
     timestamps: true,

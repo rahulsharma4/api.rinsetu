@@ -404,4 +404,132 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Foreclose Loan
+router.put('/:id/foreclose', async (req, res) => {
+  try {
+    const { settlementDiscount = 0, paymentMode = 'cash', remarks = 'Loan Foreclosed' } = req.body;
+    const loan = await Loan.findOne({ _id: req.params.id, tenantId: req.admin.tenantId });
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    if (loan.status === 'closed') return res.status(400).json({ message: 'Loan is already closed' });
+
+    const calculations = await computeLoanCalculations(
+      loan._id, 
+      loan.principalAmount,
+      loan.dueCharges,
+      loan.dueChargesPaid,
+      loan.lateCharges,
+      loan.lateChargesPaid,
+      loan.excessAdvanceBalance
+    );
+
+    const finalAmountToPay = calculations.outstandingPrincipal - settlementDiscount;
+    if (finalAmountToPay < 0) {
+        return res.status(400).json({ message: 'Discount cannot be greater than outstanding principal.' });
+    }
+
+    // Mark remaining installments as waived/paid
+    const pendingInstallments = await Installment.find({ loanId: loan._id, status: { $in: ['unpaid', 'partially_paid', 'overdue'] } });
+    for (const inst of pendingInstallments) {
+        inst.status = 'paid';
+        inst.principalPaid = (inst.principalPaid || 0) + (inst.principalComponent - (inst.principalPaid || 0));
+        // Waive off remaining interest
+        inst.interestPaid = inst.interestComponent; 
+        inst.paymentDate = new Date();
+        await inst.save();
+    }
+
+    // Add a final settlement transaction
+    if (finalAmountToPay > 0 || settlementDiscount > 0) {
+        const tx = new Transaction({
+            loanId: loan._id,
+            customerId: loan.customerId,
+            tenantId: req.admin.tenantId,
+            amount: finalAmountToPay,
+            paymentMode: paymentMode,
+            paymentDate: new Date(),
+            transactionType: 'foreclosure',
+            referenceNumber: 'FORECLOSURE',
+            status: 'approved',
+            collectedBy: req.admin._id,
+            remarks: `Foreclosure Settlement. Discount: ₹${settlementDiscount}. ${remarks}`
+        });
+        await tx.save();
+
+        if (finalAmountToPay > 0) {
+            const CashBook = (await import('../models/CashBook.js')).default;
+            await CashBook.create({
+                tenantId: req.admin.tenantId,
+                loanId: loan._id,
+                customerId: loan.customerId,
+                transactionId: tx._id,
+                type: 'in',
+                amount: finalAmountToPay,
+                mode: paymentMode,
+                date: new Date(),
+                category: 'collection',
+                description: `Foreclosure Collection. Remarks: ${remarks}`,
+                collectedBy: req.admin._id
+            });
+        }
+    }
+
+    loan.status = 'closed';
+    loan.closureDate = new Date();
+    await loan.save();
+
+    await logAuditAction(req.admin?.username || 'admin', 'LOAN_FORECLOSED', `Foreclosed loan for ₹${finalAmountToPay} with discount ₹${settlementDiscount}`, { status: 'active' }, { status: 'closed' }, req);
+
+    res.json({ message: 'Loan successfully foreclosed and closed.', loan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Send E-Sign OTP via WhatsApp
+router.put('/:id/send-otp', async (req, res) => {
+  try {
+    const loan = await Loan.findOne({ _id: req.params.id, tenantId: req.admin.tenantId }).populate('customerId');
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    // Generate 6 digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    loan.eSignOtp = otp;
+    await loan.save();
+
+    // Send OTP via WhatsApp Gateway
+    const { sendWhatsAppMessage } = await import('../utils/whatsappService.js');
+    const msgText = `Namaste ${loan.customerId.name} ji,\n\nAapke loan agreement (ID: ${loan._id.toString().slice(-6)}) ke E-Sign (Digital Signature) ke liye aapka OTP hai: *${otp}*\n\nKripya is OTP ko kisi ke sath share na karein. - RinSetu`;
+    
+    const sent = await sendWhatsAppMessage(loan.customerId.phone, msgText);
+    
+    res.json({ message: 'OTP generated and sent successfully', sentViaWhatsapp: sent });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Verify E-Sign OTP
+router.put('/:id/verify-otp', async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const loan = await Loan.findOne({ _id: req.params.id, tenantId: req.admin.tenantId }).select('+eSignOtp');
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    if (!loan.eSignOtp || loan.eSignOtp !== otp) {
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
+    }
+
+    loan.eSignStatus = 'signed';
+    loan.eSignOtp = undefined; // clear OTP
+    await loan.save();
+
+    await logAuditAction(req.admin?.username || 'admin', 'LOAN_ESIGNED', `Borrower digitally signed loan agreement using OTP verification.`, { eSignStatus: 'pending' }, { eSignStatus: 'signed' }, req);
+
+    res.json({ message: 'Document Digitally Signed Successfully!', loan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 export default router;

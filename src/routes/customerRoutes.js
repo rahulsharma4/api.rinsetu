@@ -34,13 +34,28 @@ router.get('/', async (req, res) => {
     
     const customerList = await Promise.all(
       customers.map(async (customer) => {
-        const activeLoansCount = await Loan.countDocuments({
+        const activeLoans = await Loan.find({
           customerId: customer._id,
-          status: { $in: ['active', 'overdue'] },
+          status: { $in: ['active', 'overdue', 'npa'] },
         });
+
+        // Calculate Internal Risk Score
+        let lateCount = 0;
+        let isNPA = false;
+        for (const loan of activeLoans) {
+            if (loan.status === 'npa') isNPA = true;
+            const overdues = await Installment.countDocuments({ loanId: loan._id, status: 'overdue' });
+            lateCount += overdues;
+        }
+        
+        let riskScore = 'Green';
+        if (isNPA || lateCount > 2) riskScore = 'Red';
+        else if (lateCount > 0) riskScore = 'Yellow';
+
         return {
           ...customer.toObject(),
-          activeLoansCount,
+          activeLoansCount: activeLoans.length,
+          riskScore
         };
       })
     );
@@ -79,7 +94,19 @@ router.get('/:id', async (req, res) => {
 
     const freshLoans = await Loan.find({ customerId: customer._id, tenantId: req.admin.tenantId }).sort({ startDate: -1 });
 
-    res.json({ customer, loans: freshLoans });
+    // Calculate Internal Risk Score
+    let lateCount = 0;
+    let isNPA = false;
+    for (const loan of freshLoans) {
+        if (loan.status === 'npa') isNPA = true;
+        const overdues = await Installment.countDocuments({ loanId: loan._id, status: 'overdue' });
+        lateCount += overdues;
+    }
+    let riskScore = 'Green';
+    if (isNPA || lateCount > 2) riskScore = 'Red';
+    else if (lateCount > 0) riskScore = 'Yellow';
+
+    res.json({ customer: { ...customer.toObject(), riskScore }, loans: freshLoans });
   } catch (error) {
     console.error('Error fetching customer details:', error);
     res.status(500).json({ message: error.message });
