@@ -273,43 +273,91 @@ export async function initWhatsApp() {
           const loans = await Loan.find({ customerId: customer._id, status: { $in: ['active', 'overdue', 'npa'] } });
           
           if (loans.length === 0) {
-             await sock.sendMessage(senderJid, { text: `नमस्ते ${customer.name}, आपका कोई भी ऋण/लोन फिलहाल एक्टिव नहीं है।` });
-             return;
+            await sock.sendMessage(senderJid, { text: `नमस्ते *${customer.name}* 🙏\n\nआपका कोई भी ऋण/लोन फिलहाल एक्टिव नहीं है।\n\n✅ आपका खाता क्लीयर है।` });
+            return;
           }
 
-          let replyText = `नमस्ते *${customer.name}*,\n\n`;
-          let totalDue = 0;
-          let activePrincipal = 0;
-          
-          for (const loan of loans) {
-            activePrincipal += loan.principalAmount;
-            const overdue = await Installment.find({ loanId: loan._id, status: { $in: ['unpaid', 'partially_paid', 'overdue'] }, dueDate: { $lt: new Date() } });
+          const frontendUrl = process.env.FRONTEND_URL || 'https://rin-setu.vercel.app';
+          const fmt = (n) => `₹${Math.round(n || 0).toLocaleString('en-IN')}`;
+          const fmtDate = (d) => d ? new Date(d).toLocaleDateString('hi-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '-';
+
+          let replyText = `🙏 नमस्ते *${customer.name}*,\n`;
+          replyText += `━━━━━━━━━━━━━━━━━━━━\n`;
+
+          let grandTotalDue = 0;
+          let grandTotalPrincipal = 0;
+          let grandTotalPaid = 0;
+          const isPayCommand = incomingLower === 'pay';
+
+          for (let i = 0; i < loans.length; i++) {
+            const loan = loans[i];
+            const loanNum = loans.length > 1 ? ` ${i + 1}` : '';
+
+            // Get all installments for this loan
+            const allInst = await Installment.find({ loanId: loan._id }).sort({ dueDate: 1 });
             
+            // Overdue installments
+            const now = new Date();
+            const overdueInst = allInst.filter(inst => 
+              ['unpaid', 'partially_paid', 'overdue'].includes(inst.status) && new Date(inst.dueDate) < now
+            );
+            
+            // Next upcoming installment
+            const nextInst = allInst.find(inst => 
+              ['unpaid', 'partially_paid'].includes(inst.status) && new Date(inst.dueDate) >= now
+            );
+
             let loanDue = 0;
-            overdue.forEach(inst => {
-                loanDue += Math.max(0, inst.totalAmount - (inst.amountPaid || 0));
+            overdueInst.forEach(inst => {
+              loanDue += Math.max(0, (inst.totalAmount || 0) - (inst.amountPaid || 0));
             });
-            // Add loan late fees
-            loanDue += (loan.lateCharges || 0) - (loan.lateChargesPaid || 0);
-            totalDue += loanDue;
+            loanDue += Math.max(0, (loan.lateCharges || 0) - (loan.lateChargesPaid || 0));
+            
+            const totalPaid = allInst.reduce((s, inst) => s + (inst.amountPaid || 0), 0);
+            const totalOutstanding = Math.max(0, (loan.principalAmount || 0) - (loan.paidPrincipal || 0));
+            
+            grandTotalDue += loanDue;
+            grandTotalPrincipal += loan.principalAmount || 0;
+            grandTotalPaid += totalPaid;
+
+            if (loans.length > 1) {
+              replyText += `\n📋 *लोन${loanNum}* (${loan.remarks || `#${loan._id.toString().slice(-5).toUpperCase()}`})\n`;
+            }
+
+            replyText += `💰 मूल राशि: *${fmt(loan.principalAmount)}*\n`;
+            replyText += `✅ कुल भुगतान: *${fmt(totalPaid)}*\n`;
+            replyText += `📌 शेष मूलधन: *${fmt(totalOutstanding)}*\n`;
+            
+            if (nextInst) {
+              replyText += `📅 अगली किश्त: *${fmt(nextInst.totalAmount - (nextInst.amountPaid || 0))}* on ${fmtDate(nextInst.dueDate)}\n`;
+            }
+            
+            if (loanDue > 0) {
+              replyText += `⚠️ ओवरड्यू बकाया: *${fmt(loanDue)}* (${overdueInst.length} किश्त)\n`;
+            }
           }
 
-          if (totalDue > 0) {
-            replyText += `आपकी कुल बकाया/ओवरड्यू राशि: *₹${Math.round(totalDue)}*\n\n`;
-            if (incomingText === 'pay') {
-               // Generate payment portal link. Assuming frontend is running locally or deployed.
-               // We will use a generic placeholder for the frontend domain or relative path if possible, 
-               // but typically you'd read process.env.FRONTEND_URL.
-               const frontendUrl = process.env.FRONTEND_URL || 'https://rin-setu.vercel.app';
-               replyText += `💳 भुगतान करने के लिए इस लिंक पर क्लिक करें:\n👉 ${frontendUrl}/pay/${customer._id}\n\n`;
+          replyText += `━━━━━━━━━━━━━━━━━━━━\n`;
+
+          if (grandTotalDue > 0) {
+            replyText += `\n🚨 *कुल बकाया: ${fmt(grandTotalDue)}*\n`;
+            replyText += `कृपया जल्द भुगतान करें।\n`;
+            if (isPayCommand) {
+              replyText += `\n💳 *ऑनलाइन पेमेंट लिंक:*\n👉 ${frontendUrl}/pay/${customer._id}\n`;
             } else {
-               replyText += `कृपया जल्द से जल्द भुगतान करें। ('pay' लिखकर रिप्लाई करें)\n`;
+              replyText += `\n📲 भुगतान के लिए "Pay" लिखकर भेजें।\n`;
             }
           } else {
-            replyText += `आपकी कोई भी किश्त अभी ओवरड्यू नहीं है। आपका खाता बिल्कुल सही चल रहा है।\n`;
+            replyText += `\n✅ *कोई बकाया नहीं!*\nआपका खाता बिल्कुल सही चल रहा है। 🎉\n`;
+            if (isPayCommand) {
+              replyText += `\n💳 *ऑनलाइन पेमेंट लिंक:*\n👉 ${frontendUrl}/pay/${customer._id}\n`;
+            }
           }
 
+          replyText += `\n_RinSetu - आपका डिजिटल ऋण सहायक_ 🏦`;
+
           await sock.sendMessage(senderJid, { text: replyText });
+
 
         } catch (botErr) {
           console.error("WhatsApp Bot Error:", botErr);
