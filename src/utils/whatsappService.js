@@ -159,19 +159,28 @@ export async function initWhatsApp() {
       
       if (['balance', 'pay'].includes(incomingText)) {
         try {
-          // Extract 10-digit phone number (Handle linked devices like 919876543210:5@s.whatsapp.net)
+          // Extract phone number (Handle linked devices like 919876543210:5@s.whatsapp.net)
           let jidPrefix = senderJid.split('@')[0];
           let phoneStr = jidPrefix.split(':')[0];
-          if (phoneStr.startsWith('91') && phoneStr.length === 12) phoneStr = phoneStr.substring(2);
+          
+          let digitsOnly = phoneStr.replace(/\D/g, '');
+          // If Indian number format from WhatsApp, it will be 12 digits starting with 91
+          if (digitsOnly.length >= 12 && digitsOnly.startsWith('91')) {
+            digitsOnly = digitsOnly.substring(2); // Keep last 10 digits
+          } else if (digitsOnly.length > 10) {
+            digitsOnly = digitsOnly.substring(digitsOnly.length - 10); // fallback to last 10
+          }
 
           const Customer = (await import('../models/Customer.js')).default;
           const Loan = (await import('../models/Loan.js')).default;
           const Installment = (await import('../models/Installment.js')).default;
           
-          // Use regex to ignore spaces or +91 prefixes in DB
-          // Also strip spaces from DB query if needed, but regex with end anchor is usually safe.
+          // Build a robust regex that matches these 10 digits regardless of spaces, dashes or +91 in DB
+          // e.g., '9876543210' -> /9\D*8\D*7\D*6\D*5\D*4\D*3\D*2\D*1\D*0/
+          let looseRegexString = digitsOnly.split('').join('\\D*');
+          
           const customer = await Customer.findOne({ 
-            phone: { $regex: new RegExp(phoneStr.replace(/\D/g, '') + '$') } 
+            phone: { $regex: new RegExp(looseRegexString, 'i') } 
           });
           
           if (!customer) {
