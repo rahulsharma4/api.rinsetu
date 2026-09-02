@@ -89,12 +89,18 @@ export async function initWhatsApp() {
     }
 
     const makeWASocket = baileysModule.default;
-    const { DisconnectReason } = baileysModule;
+    const { DisconnectReason, makeInMemoryStore } = baileysModule;
     const QRCode = QRCodeModule?.default || QRCodeModule;
     const pino = pinoModule?.default || pinoModule;
     const logger = pino ? pino({ level: 'silent' }) : { level: 'silent' };
 
     const { state, saveCreds } = await useMongoDBAuthState(baileysModule);
+
+    // Set up in-memory store (handles LID <-> phone JID mapping automatically)
+    let waStore = null;
+    if (makeInMemoryStore) {
+      waStore = makeInMemoryStore({ logger });
+    }
 
     const initSocket = makeWASocket.default || makeWASocket;
     sock = initSocket({
@@ -103,15 +109,18 @@ export async function initWhatsApp() {
       logger,
     });
 
+    // Bind store to socket events so it auto-tracks contacts, chats, etc.
+    if (waStore) {
+      waStore.bind(sock.ev);
+    }
+
     sock.ev.on('creds.update', saveCreds);
 
-    // LID -> Phone JID mapping (WhatsApp multi-device protocol)
-    // @lid JIDs are internal WhatsApp IDs, not phone numbers. We need to map them.
+    // Manual LID map as extra fallback (in case store doesn't have it yet)
     const lidToPhoneMap = {};
     sock.ev.on('contacts.upsert', (contacts) => {
       for (const c of contacts) {
         if (c.id && c.lid) {
-          // c.id = '917221921501@s.whatsapp.net', c.lid = '178632102297692@lid'
           lidToPhoneMap[c.lid] = c.id;
           console.log(`📱 LID mapped: ${c.lid} -> ${c.id}`);
         }
@@ -180,14 +189,22 @@ export async function initWhatsApp() {
       // Resolve @lid JIDs to actual phone JIDs (WhatsApp multi-device protocol)
       let resolvedJid = senderJid;
       if (senderJid.endsWith('@lid')) {
-        resolvedJid = lidToPhoneMap[senderJid];
-        if (!resolvedJid) {
-          // LID not yet mapped — ask user to send once more after contacts load
+        // Try store first (most reliable)
+        const storeContact = waStore?.contacts?.[senderJid];
+        if (storeContact?.id) {
+          resolvedJid = storeContact.id;
+        } else if (lidToPhoneMap[senderJid]) {
+          // Fallback to manual map
+          resolvedJid = lidToPhoneMap[senderJid];
+        } else {
+          // LID not yet mapped - wait for next message after contacts sync
+          console.warn(`⚠️ @lid not mapped yet: ${senderJid}. Asking user to retry.`);
           await sock.sendMessage(senderJid, { 
-            text: 'नमस्ते! एक बार और "Balance" लिखकर भेजें — सिस्टम आपका नंबर अभी register कर रहा है। (WhatsApp multi-device sync)' 
+            text: 'नमस्ते! कृपया 10 सेकंड बाद दोबारा "Balance" लिखें — पहली बार sync हो रहा है।'
           });
           return;
         }
+        console.log(`✅ @lid resolved: ${senderJid} -> ${resolvedJid}`);
       }
       
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
