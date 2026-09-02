@@ -178,6 +178,25 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// GET /api/superadmin/audit - Global platform activity logs
+router.get('/audit', async (req, res) => {
+  try {
+    const { tenantId, limit = 50 } = req.query;
+    let query = {};
+    if (tenantId) {
+      query.tenantId = tenantId;
+    }
+    const logs = await AuditLog.find(query)
+      .populate('tenantId', 'businessName name username')
+      .sort({ createdAt: -1 })
+      .limit(Number(limit));
+      
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // PUT /api/superadmin/tenants/:id/status - Toggle tenant status (Active <-> Suspended)
 router.put('/tenants/:id/status', async (req, res) => {
   const { status } = req.body;

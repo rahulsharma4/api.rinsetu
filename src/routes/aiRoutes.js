@@ -57,80 +57,43 @@ router.post('/chat', async (req, res) => {
   }
 
   const tenantId = req.admin.tenantId;
-  const lowerMsg = message.toLowerCase();
 
   try {
-    let reply = "";
-
-    if (lowerMsg.includes('expected') || lowerMsg.includes('collection expected') || lowerMsg.includes('recovery')) {
-      // 1. Expected collection calculation
-      const startOfToday = new Date();
-      startOfToday.setHours(0,0,0,0);
-      const endOfToday = new Date();
-      endOfToday.setHours(23,59,59,999);
-      
-      const loans = await Loan.find({ tenantId });
-      const loanIds = loans.map(l => l._id);
-      const todaysInstallments = await Installment.find({
-        loanId: { $in: loanIds },
-        dueDate: { $gte: startOfToday, $lte: endOfToday }
-      });
-
-      const expectedToday = todaysInstallments.reduce((acc, i) => acc + i.totalAmount, 0);
-      const paidToday = todaysInstallments.reduce((acc, i) => acc + i.amountPaid, 0);
-      const pendingToday = Math.max(0, expectedToday - paidToday);
-
-      reply = `Sir, aaj ka total expected collection **₹${expectedToday.toLocaleString('en-IN')}** hai. Isme se abhi tak **₹${paidToday.toLocaleString('en-IN')}** collect ho chuka hai, aur **₹${pendingToday.toLocaleString('en-IN')}** expected collection pending chal raha hai.`;
-
-    } else if (lowerMsg.includes('overdue') || lowerMsg.includes('check overdue') || lowerMsg.includes('baki')) {
-      // 2. Overdue loans check
-      const overdueLoans = await Loan.find({ tenantId, status: 'overdue' }).populate('customerId');
-      const loanIds = overdueLoans.map(l => l._id);
-      const overdueInsts = await Installment.find({ loanId: { $in: loanIds }, status: 'overdue' });
-      
-      const totalOverdue = overdueInsts.reduce((acc, i) => acc + (i.totalAmount - i.amountPaid), 0);
-      const uniqueNames = Array.from(new Set(overdueLoans.map(l => l.customerId?.name).filter(Boolean)));
-
-      reply = `Sir, system me abhi total **${overdueLoans.length} accounts overdue** (विलंबित) chal rahe hain. Kul overdue outstanding amount **₹${totalOverdue.toLocaleString('en-IN')}** hai. Mukhya overdue clients me **${uniqueNames.slice(0, 5).join(', ') || 'koi nahi'}** shamil hain. Aap inke contacts check karke warning reminder bhej sakte hain.`;
-
-    } else if (lowerMsg.includes('cash book') || lowerMsg.includes('cashbook') || lowerMsg.includes('balance')) {
-      // 3. Cash Book balance
-      const entries = await CashBook.find({ tenantId });
-      let openingBalance = 0;
-      let totalCollected = 0;
-      let totalDisbursed = 0;
-      let expenses = 0;
-
-      entries.forEach(entry => {
-        if (entry.type === 'opening_balance') {
-          openingBalance += entry.amount;
-        } else if (entry.type === 'collection' || entry.type === 'penalty_charge') {
-          totalCollected += entry.amount;
-        } else if (entry.type === 'disbursement') {
-          totalDisbursed += entry.amount;
-        } else if (entry.type === 'expense') {
-          expenses += entry.amount;
-        }
-      });
-
-      const closingBalance = openingBalance + totalCollected - totalDisbursed - expenses;
-
-      reply = `Sir, aapke Cash Book ka current drawer balance details:
-- Opening Balance: **₹${openingBalance.toLocaleString('en-IN')}**
-- Total Collected: **₹${totalCollected.toLocaleString('en-IN')}**
-- Total Disbursed: **₹${totalDisbursed.toLocaleString('en-IN')}**
-- Total Expenses: **₹${expenses.toLocaleString('en-IN')}**
-- **Net Cash Closing Balance: ₹${closingBalance.toLocaleString('en-IN')}**`;
-
-    } else {
-      // 4. Default user guide / instructions fallback
-      reply = `Namaste! Mai RinSetu ka AI Assistant hu. 
-Aap mujhse expected collections, overdue files, ya cash book balance se jude sawal preset options par click karke puch sakte hain. Kripya niche diye chips ko select karein.`;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ reply: 'System error: Gemini API key not configured.' });
     }
 
+    // Fetch dynamic context for the AI
+    const context = await getSystemContextSummary(tenantId);
+    const User = (await import('../models/User.js')).default;
+    const admin = await User.findById(req.admin.id);
+
+    const prompt = `You are the RinSetu CRM AI Assistant. Your job is to help the money lender manage their business.
+Please answer the user's question based on the following real-time database context:
+- Admin Name: ${admin.name} (Business: ${admin.businessName})
+- Total Active Borrowers: ${context.totalCustomersCount}
+- Active Loans: ${context.activeLoansCount}
+- Overdue Loans: ${context.overdueLoansCount} (Total Overdue Amount: ₹${context.totalOverdueAmount})
+- Total Principal Disbursed: ₹${context.totalPrincipalLent}
+- Total Repayments Received: ₹${context.totalReceived}
+- Key Overdue Clients: ${JSON.stringify(context.overdueCustomersList.slice(0, 5))}
+
+User Question: "${message}"
+
+Respond naturally in conversational Hinglish. Be helpful, concise, and professional. Use formatting like bolding for numbers.
+If the user asks something outside the scope of lending/CRM, gently redirect them back.`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const response = await axios.post(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }]
+    });
+
+    const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf karein, mujhe samajh nahi aaya.";
+    
     res.json({ reply });
   } catch (error) {
-    console.error('Calculated AI Chat Error:', error);
+    console.error('Interactive AI Chat Error:', error.message);
     res.status(500).json({ reply: 'Server local calculation error: ' + error.message });
   }
 });

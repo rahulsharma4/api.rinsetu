@@ -159,15 +159,20 @@ export async function initWhatsApp() {
       
       if (['balance', 'pay'].includes(incomingText)) {
         try {
-          // Extract 10-digit phone number
-          let phoneStr = senderJid.split('@')[0];
+          // Extract 10-digit phone number (Handle linked devices like 919876543210:5@s.whatsapp.net)
+          let jidPrefix = senderJid.split('@')[0];
+          let phoneStr = jidPrefix.split(':')[0];
           if (phoneStr.startsWith('91') && phoneStr.length === 12) phoneStr = phoneStr.substring(2);
 
           const Customer = (await import('../models/Customer.js')).default;
           const Loan = (await import('../models/Loan.js')).default;
           const Installment = (await import('../models/Installment.js')).default;
           
-          const customer = await Customer.findOne({ phone: { $regex: new RegExp(phoneStr + '$') } });
+          // Use regex to ignore spaces or +91 prefixes in DB
+          // Also strip spaces from DB query if needed, but regex with end anchor is usually safe.
+          const customer = await Customer.findOne({ 
+            phone: { $regex: new RegExp(phoneStr.replace(/\D/g, '') + '$') } 
+          });
           
           if (!customer) {
             await sock.sendMessage(senderJid, { text: "माफ़ करें, यह नंबर हमारे रिकॉर्ड में नहीं है। कृपया अपने रजिस्टर्ड मोबाइल नंबर से संपर्क करें।" });
