@@ -184,7 +184,7 @@ export async function initWhatsApp() {
           });
           
           if (!customer) {
-            await sock.sendMessage(senderJid, { text: "माफ़ करें, यह नंबर हमारे रिकॉर्ड में नहीं है। कृपया अपने रजिस्टर्ड मोबाइल नंबर से संपर्क करें।" });
+            await sock.sendMessage(senderJid, { text: `माफ़ करें, आपका नंबर (${digitsOnly}) हमारे रिकॉर्ड में नहीं है। कृपया अपने रजिस्टर्ड मोबाइल नंबर से संपर्क करें।` });
             return;
           }
 
