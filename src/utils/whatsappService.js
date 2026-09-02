@@ -177,6 +177,9 @@ export async function initWhatsApp() {
     });
 
     // Two-Way WhatsApp Bot (Auto-Responder)
+    // Tracks which @lid senders are awaiting phone number input
+    const pendingPhoneRequest = new Set();
+
     sock.ev.on('messages.upsert', async (m) => {
       const msg = m.messages[0];
       if (!msg.message || msg.key.fromMe) return; // ignore outgoing
@@ -186,47 +189,50 @@ export async function initWhatsApp() {
       // CRITICAL: Skip group messages - bot only works in direct/private chat
       if (senderJid.endsWith('@g.us')) return;
       
-      // Resolve @lid JIDs to actual phone JIDs (WhatsApp multi-device protocol)
+      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+      const incomingText = text.trim();
+
+      // --- Handle @lid JID (WhatsApp multi-device protocol v2) ---
       let resolvedJid = senderJid;
       if (senderJid.endsWith('@lid')) {
-        // Method 1: Reverse-search waStore.contacts (indexed by phone, contact has .lid field)
-        if (waStore?.contacts) {
-          for (const [phoneJid, contact] of Object.entries(waStore.contacts)) {
-            if (contact?.lid === senderJid || contact?.lid === senderJid.split('@')[0]) {
-              resolvedJid = phoneJid;
-              break;
-            }
+        const WALidMap = (await import('../models/WALidMap.js')).default;
+        
+        // STEP 1: Check if we already have a stored mapping in MongoDB
+        const existingMap = await WALidMap.findOne({ lid: senderJid });
+        if (existingMap) {
+          resolvedJid = existingMap.phoneJid;
+          console.log(`✅ @lid resolved from DB: ${senderJid} -> ${resolvedJid}`);
+        } else if (pendingPhoneRequest.has(senderJid)) {
+          // STEP 2: We previously asked for phone. Is this message a phone number?
+          const digits = incomingText.replace(/\D/g, '');
+          if (digits.length === 10) {
+            // Save this LID → phone mapping permanently
+            const phoneJid = `91${digits}@s.whatsapp.net`;
+            await WALidMap.create({ lid: senderJid, phoneJid, phone: digits });
+            pendingPhoneRequest.delete(senderJid);
+            resolvedJid = phoneJid;
+            console.log(`✅ @lid saved to DB: ${senderJid} -> ${phoneJid}`);
+            // Now continue to process the command (no text to process, tell them to send Balance)
+            await sock.sendMessage(senderJid, { text: `✅ आपका नंबर register हो गया! अब "Balance" या "Pay" लिखकर भेजें।` });
+            return;
+          } else {
+            // Not a valid phone, ask again
+            await sock.sendMessage(senderJid, { text: 'कृपया सिर्फ अपना 10 अंकों का मोबाइल नंबर भेजें (जैसे: 9876543210)' });
+            return;
           }
-        }
-        // Method 2: Manual map from contacts.upsert event
-        if (resolvedJid === senderJid && lidToPhoneMap[senderJid]) {
-          resolvedJid = lidToPhoneMap[senderJid];
-        }
-        // Method 3: Try sock.contacts if available
-        if (resolvedJid === senderJid && sock.contacts) {
-          for (const [phoneJid, contact] of Object.entries(sock.contacts)) {
-            if (contact?.lid === senderJid) {
-              resolvedJid = phoneJid;
-              break;
-            }
-          }
-        }
-        if (resolvedJid === senderJid) {
-          // Still not resolved — store the LID in map for later and ask to retry
-          console.warn(`⚠️ @lid not mapped: ${senderJid}`);
+        } else {
+          // STEP 3: First time seeing this LID — ask for phone number
+          pendingPhoneRequest.add(senderJid);
           await sock.sendMessage(senderJid, { 
-            text: 'नमस्ते! कृपया 15 सेकंड बाद दोबारा "Balance" लिखें।'
+            text: 'नमस्ते! बेहतर सेवा के लिए कृपया अपना 10 अंकों का मोबाइल नंबर भेजें जो आपके ऋण खाते में दर्ज है।\n\n(उदाहरण: 9876543210)'
           });
           return;
         }
-        console.log(`✅ @lid resolved: ${senderJid} -> ${resolvedJid}`);
       }
 
-      
-      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-      const incomingText = text.trim().toLowerCase();
-      
-      if (['balance', 'pay'].includes(incomingText)) {
+      const incomingLower = incomingText.toLowerCase();
+      if (['balance', 'pay'].includes(incomingLower)) {
+
         try {
           // Extract phone number from resolved JID like: 917221921501@s.whatsapp.net
           let rawId = resolvedJid.split('@')[0];
