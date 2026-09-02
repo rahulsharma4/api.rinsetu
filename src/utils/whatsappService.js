@@ -105,6 +105,26 @@ export async function initWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // LID -> Phone JID mapping (WhatsApp multi-device protocol)
+    // @lid JIDs are internal WhatsApp IDs, not phone numbers. We need to map them.
+    const lidToPhoneMap = {};
+    sock.ev.on('contacts.upsert', (contacts) => {
+      for (const c of contacts) {
+        if (c.id && c.lid) {
+          // c.id = '917221921501@s.whatsapp.net', c.lid = '178632102297692@lid'
+          lidToPhoneMap[c.lid] = c.id;
+          console.log(`📱 LID mapped: ${c.lid} -> ${c.id}`);
+        }
+      }
+    });
+    sock.ev.on('contacts.update', (updates) => {
+      for (const c of updates) {
+        if (c.id && c.lid) {
+          lidToPhoneMap[c.lid] = c.id;
+        }
+      }
+    });
+
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
@@ -157,23 +177,32 @@ export async function initWhatsApp() {
       // CRITICAL: Skip group messages - bot only works in direct/private chat
       if (senderJid.endsWith('@g.us')) return;
       
+      // Resolve @lid JIDs to actual phone JIDs (WhatsApp multi-device protocol)
+      let resolvedJid = senderJid;
+      if (senderJid.endsWith('@lid')) {
+        resolvedJid = lidToPhoneMap[senderJid];
+        if (!resolvedJid) {
+          // LID not yet mapped — ask user to send once more after contacts load
+          await sock.sendMessage(senderJid, { 
+            text: 'नमस्ते! एक बार और "Balance" लिखकर भेजें — सिस्टम आपका नंबर अभी register कर रहा है। (WhatsApp multi-device sync)' 
+          });
+          return;
+        }
+      }
+      
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
       const incomingText = text.trim().toLowerCase();
       
       if (['balance', 'pay'].includes(incomingText)) {
         try {
-          // Extract phone number from JID like: 917221921501@s.whatsapp.net
-          // Step 1: remove the @s.whatsapp.net part
-          let rawId = senderJid.split('@')[0];
-          // Step 2: remove linked-device suffix like :5
+          // Extract phone number from resolved JID like: 917221921501@s.whatsapp.net
+          let rawId = resolvedJid.split('@')[0];
           rawId = rawId.split(':')[0];
-          // Step 3: remove all non-digits
           let digitsOnly = rawId.replace(/\D/g, '');
-          // Step 4: WhatsApp always sends Indian numbers as 91XXXXXXXXXX (12 digits)
           if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
-            digitsOnly = digitsOnly.slice(2); // get last 10 digits
+            digitsOnly = digitsOnly.slice(2);
           } else if (digitsOnly.length > 10) {
-            digitsOnly = digitsOnly.slice(-10); // take last 10 as fallback
+            digitsOnly = digitsOnly.slice(-10);
           }
 
           const Customer = (await import('../models/Customer.js')).default;
@@ -195,9 +224,10 @@ export async function initWhatsApp() {
           }
           
           if (!customer) {
-            // Show full raw JID so admin can debug exactly what WhatsApp is sending
-            const rawJid = senderJid;
-            await sock.sendMessage(senderJid, { text: `[DEBUG] Raw JID: ${rawJid} | Extracted digits: ${digitsOnly}\n\nकृपया इस नंबर की जानकारी अपने CRM में save करें।` });
+            // Send reply to the resolved JID so the message goes to the right person
+            await sock.sendMessage(resolvedJid || senderJid, { 
+              text: `माफ़ करें, आपका नंबर (${digitsOnly}) हमारे रिकॉर्ड में नहीं है। कृपया अपने रजिस्टर्ड मोबाइल नंबर से संपर्क करें।` 
+            });
             return;
           }
 
