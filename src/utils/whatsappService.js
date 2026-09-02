@@ -153,39 +153,41 @@ export async function initWhatsApp() {
       if (!msg.message || msg.key.fromMe) return; // ignore outgoing
 
       const senderJid = msg.key.remoteJid;
-      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
       
+      // CRITICAL: Skip group messages - bot only works in direct/private chat
+      if (senderJid.endsWith('@g.us')) return;
+      
+      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
       const incomingText = text.trim().toLowerCase();
       
       if (['balance', 'pay'].includes(incomingText)) {
         try {
-          // Handle group messages (extract the actual sender's phone, not the group ID)
-          const isGroup = senderJid.endsWith('@g.us');
-          const actualSenderJid = isGroup ? (msg.key.participant || senderJid) : senderJid;
-          
-          // Extract phone number (Handle linked devices like 919876543210:5@s.whatsapp.net)
-          let jidPrefix = actualSenderJid.split('@')[0];
-          let phoneStr = jidPrefix.split(':')[0];
-          
-          let digitsOnly = phoneStr.replace(/\D/g, '');
-          // If Indian number format from WhatsApp, it will be 12 digits starting with 91
-          if (digitsOnly.length >= 12 && digitsOnly.startsWith('91')) {
-            digitsOnly = digitsOnly.substring(2); // Keep last 10 digits
+          // Extract phone number from JID like: 917221921501@s.whatsapp.net
+          // Step 1: remove the @s.whatsapp.net part
+          let rawId = senderJid.split('@')[0];
+          // Step 2: remove linked-device suffix like :5
+          rawId = rawId.split(':')[0];
+          // Step 3: remove all non-digits
+          let digitsOnly = rawId.replace(/\D/g, '');
+          // Step 4: WhatsApp always sends Indian numbers as 91XXXXXXXXXX (12 digits)
+          if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
+            digitsOnly = digitsOnly.slice(2); // get last 10 digits
           } else if (digitsOnly.length > 10) {
-            digitsOnly = digitsOnly.substring(digitsOnly.length - 10); // fallback to last 10
+            digitsOnly = digitsOnly.slice(-10); // take last 10 as fallback
           }
 
           const Customer = (await import('../models/Customer.js')).default;
           const Loan = (await import('../models/Loan.js')).default;
           const Installment = (await import('../models/Installment.js')).default;
           
-          // Build a robust regex that matches these 10 digits regardless of spaces, dashes or +91 in DB
-          // e.g., '9876543210' -> /9\D*8\D*7\D*6\D*5\D*4\D*3\D*2\D*1\D*0/
-          let looseRegexString = digitsOnly.split('').join('\\D*');
-          
-          const customer = await Customer.findOne({ 
-            phone: { $regex: new RegExp(looseRegexString, 'i') } 
-          });
+          // Try exact match first, then regex match to handle numbers stored with spaces/dashes
+          let customer = await Customer.findOne({ phone: digitsOnly });
+          if (!customer) {
+            customer = await Customer.findOne({ phone: `+91${digitsOnly}` });
+          }
+          if (!customer) {
+            customer = await Customer.findOne({ phone: { $regex: digitsOnly } });
+          }
           
           if (!customer) {
             await sock.sendMessage(senderJid, { text: `माफ़ करें, आपका नंबर (${digitsOnly}) हमारे रिकॉर्ड में नहीं है। कृपया अपने रजिस्टर्ड मोबाइल नंबर से संपर्क करें।` });
