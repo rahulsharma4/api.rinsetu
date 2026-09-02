@@ -188,9 +188,16 @@ export async function initWhatsApp() {
           if (!customer) {
             customer = await Customer.findOne({ phone: { $regex: digitsOnly } });
           }
+          // Final fallback: search by last 7 unique digits (handles partial saves)
+          if (!customer && digitsOnly.length >= 7) {
+            const last7 = digitsOnly.slice(-7);
+            customer = await Customer.findOne({ phone: { $regex: last7 + '$' } });
+          }
           
           if (!customer) {
-            await sock.sendMessage(senderJid, { text: `माफ़ करें, आपका नंबर (${digitsOnly}) हमारे रिकॉर्ड में नहीं है। कृपया अपने रजिस्टर्ड मोबाइल नंबर से संपर्क करें।` });
+            // Show full raw JID so admin can debug exactly what WhatsApp is sending
+            const rawJid = senderJid;
+            await sock.sendMessage(senderJid, { text: `[DEBUG] Raw JID: ${rawJid} | Extracted digits: ${digitsOnly}\n\nकृपया इस नंबर की जानकारी अपने CRM में save करें।` });
             return;
           }
 
