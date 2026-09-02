@@ -189,23 +189,39 @@ export async function initWhatsApp() {
       // Resolve @lid JIDs to actual phone JIDs (WhatsApp multi-device protocol)
       let resolvedJid = senderJid;
       if (senderJid.endsWith('@lid')) {
-        // Try store first (most reliable)
-        const storeContact = waStore?.contacts?.[senderJid];
-        if (storeContact?.id) {
-          resolvedJid = storeContact.id;
-        } else if (lidToPhoneMap[senderJid]) {
-          // Fallback to manual map
+        // Method 1: Reverse-search waStore.contacts (indexed by phone, contact has .lid field)
+        if (waStore?.contacts) {
+          for (const [phoneJid, contact] of Object.entries(waStore.contacts)) {
+            if (contact?.lid === senderJid || contact?.lid === senderJid.split('@')[0]) {
+              resolvedJid = phoneJid;
+              break;
+            }
+          }
+        }
+        // Method 2: Manual map from contacts.upsert event
+        if (resolvedJid === senderJid && lidToPhoneMap[senderJid]) {
           resolvedJid = lidToPhoneMap[senderJid];
-        } else {
-          // LID not yet mapped - wait for next message after contacts sync
-          console.warn(`⚠️ @lid not mapped yet: ${senderJid}. Asking user to retry.`);
+        }
+        // Method 3: Try sock.contacts if available
+        if (resolvedJid === senderJid && sock.contacts) {
+          for (const [phoneJid, contact] of Object.entries(sock.contacts)) {
+            if (contact?.lid === senderJid) {
+              resolvedJid = phoneJid;
+              break;
+            }
+          }
+        }
+        if (resolvedJid === senderJid) {
+          // Still not resolved — store the LID in map for later and ask to retry
+          console.warn(`⚠️ @lid not mapped: ${senderJid}`);
           await sock.sendMessage(senderJid, { 
-            text: 'नमस्ते! कृपया 10 सेकंड बाद दोबारा "Balance" लिखें — पहली बार sync हो रहा है।'
+            text: 'नमस्ते! कृपया 15 सेकंड बाद दोबारा "Balance" लिखें।'
           });
           return;
         }
         console.log(`✅ @lid resolved: ${senderJid} -> ${resolvedJid}`);
       }
+
       
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
       const incomingText = text.trim().toLowerCase();
