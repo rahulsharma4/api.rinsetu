@@ -159,8 +159,12 @@ export async function initWhatsApp() {
       
       if (['balance', 'pay'].includes(incomingText)) {
         try {
+          // Handle group messages (extract the actual sender's phone, not the group ID)
+          const isGroup = senderJid.endsWith('@g.us');
+          const actualSenderJid = isGroup ? (msg.key.participant || senderJid) : senderJid;
+          
           // Extract phone number (Handle linked devices like 919876543210:5@s.whatsapp.net)
-          let jidPrefix = senderJid.split('@')[0];
+          let jidPrefix = actualSenderJid.split('@')[0];
           let phoneStr = jidPrefix.split(':')[0];
           
           let digitsOnly = phoneStr.replace(/\D/g, '');
