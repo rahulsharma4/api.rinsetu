@@ -143,14 +143,24 @@ import Installment from '../models/Installment.js';
 
 export async function autoQueuePeriodicNotifications() {
   try {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    // Determine the current date in IST (UTC+5:30)
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
 
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    // Start of current day in IST (Shifted back to UTC for MongoDB queries)
+    const startOfDayIst = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0));
+    const startOfDay = new Date(startOfDayIst.getTime() - istOffset);
 
-    const threeDaysLater = new Date(startOfDay);
-    threeDaysLater.setDate(startOfDay.getDate() + 3);
+    // End of current day in IST (Shifted back to UTC)
+    const endOfDayIst = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999));
+    const endOfDay = new Date(endOfDayIst.getTime() - istOffset);
+
+    // Three days later in IST
+    const threeDaysLaterIst = new Date(startOfDayIst);
+    threeDaysLaterIst.setUTCDate(threeDaysLaterIst.getUTCDate() + 3);
+    const threeDaysLater = new Date(threeDaysLaterIst.getTime() - istOffset);
+    const threeDaysLaterEnd = new Date(threeDaysLater.getTime() + 24 * 60 * 60 * 1000 - 1);
 
     // 1. Due Today Notifications (Scans installments due today)
     const dueTodayInsts = await Installment.find({
@@ -180,7 +190,7 @@ export async function autoQueuePeriodicNotifications() {
       status: { $ne: 'paid' },
       dueDate: {
         $gte: threeDaysLater,
-        $lt: new Date(threeDaysLater.getTime() + 24 * 60 * 60 * 1000)
+        $lte: threeDaysLaterEnd
       }
     }).populate({
       path: 'loanId',

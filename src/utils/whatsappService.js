@@ -192,9 +192,16 @@ export async function initWhatsApp() {
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
       const incomingText = text.trim();
 
+      const incomingLower = incomingText.toLowerCase();
+      const isCommand = ['balance', 'pay'].includes(incomingLower);
+      const isPendingPhone = pendingPhoneRequest.has(senderJid);
+
       // --- Handle @lid JID (WhatsApp multi-device protocol v2) ---
       let resolvedJid = senderJid;
       if (senderJid.endsWith('@lid')) {
+        // If not a command and not pending, ignore regular chatter from @lid
+        if (!isCommand && !isPendingPhone) return;
+
         const WALidMap = (await import('../models/WALidMap.js')).default;
         
         // STEP 1: Check if we already have a stored mapping in MongoDB
@@ -202,7 +209,7 @@ export async function initWhatsApp() {
         if (existingMap) {
           resolvedJid = existingMap.phoneJid;
           console.log(`✅ @lid resolved from DB: ${senderJid} -> ${resolvedJid}`);
-        } else if (pendingPhoneRequest.has(senderJid)) {
+        } else if (isPendingPhone) {
           // STEP 2: We previously asked for phone. Is this message a phone number?
           const digits = incomingText.replace(/\D/g, '');
           if (digits.length === 10) {
@@ -221,7 +228,7 @@ export async function initWhatsApp() {
             return;
           }
         } else {
-          // STEP 3: First time seeing this LID — ask for phone number
+          // STEP 3: First time seeing this LID + it IS a command — ask for phone number
           pendingPhoneRequest.add(senderJid);
           await sock.sendMessage(senderJid, { 
             text: 'नमस्ते! बेहतर सेवा के लिए कृपया अपना 10 अंकों का मोबाइल नंबर भेजें जो आपके ऋण खाते में दर्ज है।\n\n(उदाहरण: 9876543210)'
@@ -230,8 +237,7 @@ export async function initWhatsApp() {
         }
       }
 
-      const incomingLower = incomingText.toLowerCase();
-      if (['balance', 'pay'].includes(incomingLower)) {
+      if (isCommand) {
 
         try {
           // Extract phone number from resolved JID like: 917221921501@s.whatsapp.net
