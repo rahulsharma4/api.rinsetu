@@ -348,7 +348,18 @@ export async function initWhatsApp() {
               replyText += `\n📲 भुगतान के लिए "Pay" लिखकर भेजें।\n`;
             }
           } else {
-            replyText += `\n✅ *कोई बकाया नहीं!*\nआपका खाता बिल्कुल सही चल रहा है। 🎉\n`;
+            // No overdue amount – give a positive summary and next actions
+            replyText += `\n✅ *कोई बकाया नहीं!* 🎉\n`;
+            replyText += `आपका कुल मूलधन: *${fmt(grandTotalPrincipal)}*\n`;
+            replyText += `कुल भुगतान किया गया: *${fmt(grandTotalPaid)}*\n`;
+            const nextInstOverall = await Installment.findOne({ loanId: { $in: loans.map(l => l._id) }, status: { $in: ['unpaid', 'partially_paid'] } }).sort({ dueDate: 1 });
+            if (nextInstOverall) {
+              const amount = fmt(nextInstOverall.totalAmount - (nextInstOverall.amountPaid || 0));
+              const dueDate = fmtDate(nextInstOverall.dueDate);
+              replyText += `अगली भुगतान: *${amount}* on ${dueDate}\n`;
+            }
+            replyText += `\nआप अपना लोन स्टेटमेंट यहाँ देख सकते हैं: ${frontendUrl}/loan/${customer._id}\n`;
+            replyText += `📞 यदि कोई प्रश्न हो तो सपोर्ट से संपर्क करें: +91-XXXXXXXXXX\n`;
             if (isPayCommand) {
               replyText += `\n💳 *ऑनलाइन पेमेंट लिंक:*\n👉 ${frontendUrl}/pay/${customer._id}\n`;
             }
