@@ -58,10 +58,13 @@ export async function queueNotification(customerId, loanId, type, data = {}) {
     // Format metrics
     const formattedAmount = data.amount ? parseFloat(data.amount).toLocaleString('en-IN') : '0';
     const formattedOutstanding = data.outstanding ? parseFloat(data.outstanding).toLocaleString('en-IN') : '0';
-    const formattedDate = data.dueDate ? new Date(data.dueDate).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+    
+    // Format date as 12-Oct-2026
+    const dateObj = data.dueDate ? new Date(data.dueDate) : new Date();
+    const formattedDate = dateObj.toLocaleDateString('hi-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     
     const frontendUrl = process.env.FRONTEND_URL || 'https://rin-setu-jk8h-amber.vercel.app';
-    const paymentLink = `${frontendUrl}/pay/loan/${loan._id}`;
+    const paymentLink = `${frontendUrl}/pay/${customer._id}`; // Changed to the generic portal link instead of loan specific
 
     let messageText = template
       .replace(/{{customerName}}/g, customer.name)

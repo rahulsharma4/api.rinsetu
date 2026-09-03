@@ -188,4 +188,27 @@ router.get('/check-status/:orderId', async (req, res) => {
   }
 });
 
+// GET /api/public/cron - Endpoint for external cron triggers (cron-job.org / Vercel Cron)
+router.get('/cron', async (req, res) => {
+  const { secret } = req.query;
+  // Ensure the secret matches the one in environment variables
+  const expectedSecret = process.env.CRON_SECRET || 'fallback_cron_secret_rinsetu_123';
+  
+  if (secret !== expectedSecret) {
+    return res.status(401).json({ message: 'Unauthorized cron trigger.' });
+  }
+
+  try {
+    const { runDailyAccrualJob } = await import('../utils/cronJob.js');
+    const resObj = await runDailyAccrualJob();
+    if (resObj.success) {
+      res.json({ message: 'Auto check & notifications processed successfully.', ...resObj });
+    } else {
+      res.status(500).json({ message: 'Cron trigger failed.', error: resObj.error });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 export default router;
